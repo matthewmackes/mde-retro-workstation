@@ -23,6 +23,7 @@ mod menu;
 mod panel;
 mod sway;
 mod sysinfo;
+mod system_properties;
 mod tui_setup;
 
 const USAGE: &str = "\
@@ -71,7 +72,7 @@ fn main() -> ExitCode {
         "files" => files::run(rest),
         "control-panel" => control_panel::run(rest),
         "run" => dialogs::run_dialog(),
-        "system-properties" => sysinfo::run(rest),
+        "system-properties" => system_properties::run(rest),
         "logoff" => dialogs::logoff(),
         "shutdown" => dialogs::shutdown(),
         "setup" => installer::dispatch(rest),

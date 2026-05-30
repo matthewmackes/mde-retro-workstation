@@ -42,7 +42,7 @@ pub const TOOLS: &[Tool] = &[
     Tool { category: "Control Panel", name: "Event Viewer", command: "gnome-abrt", terminal: false, package: "gnome-abrt", detect_bin: "gnome-abrt", icons: &["logviewer"] },
     Tool { category: "Control Panel", name: "Security Center", command: "sealert -b", terminal: false, package: "setroubleshoot-server", detect_bin: "sealert", icons: &["security-high"] },
     Tool { category: "Control Panel", name: "Create Installation Media", command: "mediawriter", terminal: false, package: "mediawriter", detect_bin: "mediawriter", icons: &["media-optical"] },
-    Tool { category: "Control Panel", name: "System", command: "hostnamectl; echo; read -p 'Press Enter to close '", terminal: true, package: "systemd", detect_bin: "hostnamectl", icons: &["computer"] },
+    Tool { category: "Control Panel", name: "System", command: "mde system-properties", terminal: false, package: "mde", detect_bin: "mde", icons: &["computer"] },
     Tool { category: "Control Panel", name: "Date and Time", command: "timedatectl; echo; read -p 'Press Enter to close '", terminal: true, package: "systemd", detect_bin: "timedatectl", icons: &["preferences-system-time"] },
     Tool { category: "Control Panel", name: "Printers", command: "system-config-printer", terminal: false, package: "system-config-printer", detect_bin: "system-config-printer", icons: &["printer"] },
 
