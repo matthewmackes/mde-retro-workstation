@@ -64,3 +64,17 @@ visual target for manual eyeballing and future per-region comparison.
 > Skips automatically when `WAYLAND_DISPLAY` is unset (headless CI), and skips
 > any component whose capture PNG hasn't been generated — so a partial capture
 > run still verifies what it has.
+
+**Capture in a controlled session.** The spot-check points assume the component
+under test is unoccluded and the output is awake. Run `capture.sh` on a clean
+MDE-Retro desktop (no other windows over the desktop/taskbar regions) or, best,
+in a **nested** sway on a headless WLR output (`WLR_BACKENDS=headless sway`) so
+the geometry is fixed and nothing covers the captured regions. A blanked/idle
+screen (black framebuffer) or a foreign window sitting over a checkpoint will
+make the affected point fail — by design; the harness is asserting what is
+actually on screen. `capture.sh` issues a best-effort DPMS-on + pointer nudge
+first, but it cannot move the user's windows out of the way.
+
+Verified live (clean desktop, screen awake): desktop background, taskbar face,
+and the raised-bevel highlight all matched the Win2000 palette exactly (Δ0), on
+both the sway background and the Rust `mde panel`.
