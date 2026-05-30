@@ -42,7 +42,10 @@ pub fn run(args: &[String]) -> ExitCode {
 // --- GUI -------------------------------------------------------------------
 
 #[derive(Default)]
-struct ControlPanel;
+struct ControlPanel {
+    selected: Option<usize>,
+    last_click: Option<(usize, std::time::Instant)>,
+}
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -59,14 +62,26 @@ fn gui() -> iced::Result {
         .run()
 }
 
-fn update(_state: &mut ControlPanel, message: Message) -> Task<Message> {
+fn update(state: &mut ControlPanel, message: Message) -> Task<Message> {
     if let Message::Activate(i) = message {
-        if let Some(tool) = fedora::TOOLS.get(i) {
-            if fedora::is_installed(tool) {
-                let _ = fedora::launch(tool);
-            } else {
-                let _ = fedora::install(&[tool.package]);
+        // Single-click selects; double-click (<400ms) opens — classic shell.
+        let now = std::time::Instant::now();
+        let is_double = state
+            .last_click
+            .map(|(li, lt)| li == i && now.duration_since(lt) < std::time::Duration::from_millis(400))
+            .unwrap_or(false);
+        if is_double {
+            state.last_click = None;
+            if let Some(tool) = fedora::TOOLS.get(i) {
+                if fedora::is_installed(tool) {
+                    let _ = fedora::launch(tool);
+                } else {
+                    let _ = fedora::install(&[tool.package]);
+                }
             }
+        } else {
+            state.selected = Some(i);
+            state.last_click = Some((i, now));
         }
     }
     Task::none()
@@ -76,17 +91,23 @@ fn pad(top: f32, right: f32, bottom: f32, left: f32) -> Padding {
     Padding { top, right, bottom, left }
 }
 
-fn flat(_theme: &iced::Theme, status: button::Status) -> button::Style {
-    let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-    button::Style {
-        background: hot.then(|| Background::Color(palette::color(palette::HIGHLIGHT))),
-        text_color: if hot {
-            palette::color(palette::HIGHLIGHT_TEXT)
-        } else {
-            palette::color(palette::WINDOW_TEXT)
-        },
-        border: Border::default(),
-        shadow: Shadow::default(),
+fn flat(theme: &iced::Theme, status: button::Status) -> button::Style {
+    item_style(false)(theme, status)
+}
+
+fn item_style(selected: bool) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
+    move |_theme, status| {
+        let hot = selected || matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: hot.then(|| Background::Color(palette::color(palette::HIGHLIGHT))),
+            text_color: if hot {
+                palette::color(palette::HIGHLIGHT_TEXT)
+            } else {
+                palette::color(palette::WINDOW_TEXT)
+            },
+            border: Border::default(),
+            shadow: Shadow::default(),
+        }
     }
 }
 
@@ -147,7 +168,7 @@ fn sidebar<'a>() -> Element<'a, Message> {
         .into()
 }
 
-fn grid<'a>() -> Element<'a, Message> {
+fn grid(state: &ControlPanel) -> Element<'_, Message> {
     let bold = mde_ui::font::UI_BOLD;
     let mut col = Column::new().spacing(0.0).padding(pad(4.0, 4.0, 4.0, 6.0));
     for category in fedora::categories() {
@@ -168,7 +189,7 @@ fn grid<'a>() -> Element<'a, Message> {
                     .on_press(Message::Activate(i))
                     .width(Length::Fill)
                     .padding(pad(2.0, 8.0, 2.0, 8.0))
-                    .style(flat),
+                    .style(item_style(state.selected == Some(i))),
             );
         }
     }
@@ -192,10 +213,10 @@ fn status_bar<'a>() -> Element<'a, Message> {
     .into()
 }
 
-fn view(_state: &ControlPanel) -> Element<'_, Message> {
+fn view(state: &ControlPanel) -> Element<'_, Message> {
     let body = Row::new()
         .push(sidebar())
-        .push(container(grid()).width(Length::Fill).height(Length::Fill).padding(2.0));
+        .push(container(grid(state)).width(Length::Fill).height(Length::Fill).padding(2.0));
 
     let content = Column::new()
         .push(menubar())
