@@ -47,15 +47,16 @@ assets = [
     { source = "../../assets/install-assets.sh", dest = "/usr/share/mde/scripts/install-assets.sh", mode = "0755" },
     { source = "../../assets/install-chicago95.sh", dest = "/usr/share/mde/scripts/install-chicago95.sh", mode = "0755" },
 ]
-# Runtime packages the shell drives. Assets are fetched, not required here.
-requires = { sway = "*", foot = "*", grim = "*", "xkeyboard-config" = "*" }
+# Runtime packages the shell actually drives (the CORE set the installer needs +
+# the helpers the shell shells out to). Visual assets are fetched, not required.
+requires = { sway = "*", swaybg = "*", foot = "*", grim = "*", wmenu = "*", "xdg-utils" = "*", NetworkManager = "*", greetd = "*", tuigreet = "*", pipewire = "*", wireplumber = "*", polkit = "*", "google-droid-sans-fonts" = "*", "xkeyboard-config" = "*" }
 post_install_script = """
-for c in panel menu files control-panel install; do
+for c in panel menu files control-panel run setup install logoff shutdown; do
     ln -sf /usr/bin/mde /usr/bin/mde-$c
 done
 """
 post_uninstall_script = """
-for c in panel menu files control-panel install; do
+for c in panel menu files control-panel run setup install logoff shutdown; do
     rm -f /usr/bin/mde-$c
 done
 """

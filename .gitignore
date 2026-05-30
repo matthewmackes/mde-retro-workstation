@@ -10,6 +10,10 @@ home/.config/**/*.bak.*
 /assets/build/
 /assets/cache/
 *.iso
+# Fetched icon-theme tarballs (decision #7: never redistributed, fetched at
+# install time by install-win2k-icons.py). NOTE: 133-Win2k-*.tgz is still
+# tracked from the first commit — `git rm --cached` it before publishing.
+home/.config/sway/resources/*.tgz
 
 # Editor noise
 *.swp

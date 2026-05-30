@@ -37,7 +37,10 @@ COMMANDS:
     files [PATH]     Explorer-style file manager
     control-panel    Windows 2000 Control Panel
     run              Run dialog (type a command to launch)
+    setup [--tui|--gui|--dry-run]   Install/configure MDE-Retro
     install [--assets]   Fetch Chicago95 + Win2k assets (first run)
+    logoff           Log Off confirmation dialog
+    shutdown         Shut Down dialog
 
     -h, --help       Show this help
     -V, --version    Show version
