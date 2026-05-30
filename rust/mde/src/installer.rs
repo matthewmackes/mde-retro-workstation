@@ -20,7 +20,7 @@ const STAGES: &[(&str, &str)] = &[
     ("Installing packages", "Setup is installing sway, foot, fonts and the system tools MDE-Retro uses."),
     ("Deploying configuration", "Setup is copying the MDE-Retro configuration files into your home directory."),
     ("Installing visual assets", "Setup is installing the Chicago95 icons, cursors and sounds and the Win2k icon theme."),
-    ("Building the shell", "Setup is compiling the mde shell and the Device Manager."),
+    ("Installing the shell", "Setup is installing the mde shell, Control Panel, and the native Device Manager."),
     ("Finalizing installation", "Setup is configuring your Windows 2000 session and the logon screen."),
 ];
 
