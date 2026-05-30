@@ -263,12 +263,15 @@ fn menubar<'a>() -> Element<'a, Message> {
         .into()
 }
 
-fn tool<'a>(label: &'a str, msg: Message) -> Element<'a, Message> {
-    button(text(label).size(metrics::UI_PX))
-        .on_press(msg)
-        .padding(pad(2.0, 8.0, 2.0, 8.0))
-        .style(flat)
-        .into()
+/// A toolbar button: raised 3D chrome (Win2000 hot-track / classic), pressed on
+/// click — NOT the navy menu-highlight style. `None` = unavailable, drawn
+/// disabled (gray) via the mde-ui button's no-action state.
+fn tool<'a>(label: &'a str, msg: Option<Message>) -> Element<'a, Message> {
+    let mut b = mde_ui::button(text(label).size(metrics::UI_PX)).padding(pad(2.0, 8.0, 2.0, 8.0));
+    if let Some(m) = msg {
+        b = b.on_press(m);
+    }
+    b.into()
 }
 
 fn toolbar(state: &Files) -> Element<'_, Message> {
@@ -277,11 +280,11 @@ fn toolbar(state: &Files) -> Element<'_, Message> {
     let row = Row::new()
         .spacing(2.0)
         .padding(2.0)
-        .push(tool("Back", if back { Message::Back } else { Message::Noop }))
-        .push(tool("Forward", if fwd { Message::Forward } else { Message::Noop }))
-        .push(tool("Up", Message::Up))
-        .push(tool("Home", Message::Home))
-        .push(tool("Refresh", Message::Refresh));
+        .push(tool("Back", back.then_some(Message::Back)))
+        .push(tool("Forward", fwd.then_some(Message::Forward)))
+        .push(tool("Up", Some(Message::Up)))
+        .push(tool("Home", Some(Message::Home)))
+        .push(tool("Refresh", Some(Message::Refresh)));
     container(iced::widget::stack![
         frame::raised().thickness(1),
         container(row).width(Length::Fill)
@@ -304,13 +307,15 @@ fn address_bar(state: &Files) -> Element<'_, Message> {
                 .size(metrics::UI_PX)
                 .width(Length::Fill),
         )
-        .push(tool("Go", Message::GoAddress))
+        .push(tool("Go", Some(Message::GoAddress)))
         .into()
 }
 
 fn header_cell<'a>(label: &'a str, width: Length) -> Element<'a, Message> {
+    // A column header is a raised button-like cell (full 2-line edge), the way
+    // Win2000's list-view header draws — not a thin hairline.
     iced::widget::stack![
-        frame::raised().thickness(1),
+        frame::raised(),
         container(text(label).size(metrics::UI_PX))
             .padding(pad(1.0, 6.0, 1.0, 6.0))
             .width(width),
@@ -361,7 +366,7 @@ fn list(state: &Files) -> Element<'_, Message> {
 
 fn status_bar(state: &Files) -> Element<'_, Message> {
     container(iced::widget::stack![
-        frame::sunken().thickness(1),
+        frame::sunken(),
         container(text(format!("{} object(s)", state.entries.len())).size(metrics::UI_PX))
             .padding(pad(1.0, 6.0, 1.0, 6.0)),
     ])

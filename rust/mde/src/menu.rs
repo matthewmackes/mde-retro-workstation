@@ -290,17 +290,26 @@ fn col_content_height(nodes: &[Node]) -> f32 {
 
 fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> Element<'a, Message> {
     match node {
-        Node::Sep => container(
-            container(Space::new(Length::Fill, Length::Fixed(1.0)))
-                .width(Length::Fill)
-                .style(|_| container::Style {
-                    background: Some(Background::Color(palette::color(palette::BUTTON_SHADOW))),
-                    ..container::Style::default()
-                }),
-        )
-        .height(Length::Fixed(SEP_H))
-        .padding(pad(3.0, 6.0, 3.0, 6.0))
-        .into(),
+        // Etched (engraved) menu separator: a 1px shadow line over a 1px
+        // highlight line — the Win2000 sunken edge, not a single gray rule.
+        Node::Sep => {
+            let line = |rgb| {
+                container(Space::new(Length::Fill, Length::Fixed(1.0)))
+                    .width(Length::Fill)
+                    .style(move |_| container::Style {
+                        background: Some(Background::Color(palette::color(rgb))),
+                        ..container::Style::default()
+                    })
+            };
+            container(
+                Column::new()
+                    .push(line(palette::BUTTON_SHADOW))
+                    .push(line(palette::BUTTON_HILIGHT)),
+            )
+            .height(Length::Fixed(SEP_H))
+            .padding(pad(3.0, 6.0, 3.0, 6.0))
+            .into()
+        }
         Node::Leaf(label, _) => button(text(label).size(metrics::UI_PX))
             .on_press(Message::Click(col, idx))
             .width(Length::Fill)
