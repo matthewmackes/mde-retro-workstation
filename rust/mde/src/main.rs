@@ -22,6 +22,7 @@ mod installer;
 mod menu;
 mod panel;
 mod sway;
+mod sysinfo;
 mod tui_setup;
 
 const USAGE: &str = "\
@@ -37,6 +38,7 @@ COMMANDS:
     files [PATH]     Explorer-style file manager
     control-panel    Windows 2000 Control Panel
     run              Run dialog (type a command to launch)
+    system-properties [--info|--devices]   System facts / Device Manager data
     setup [--tui|--gui|--dry-run]   Install/configure MDE-Retro
     install [--assets]   Fetch Chicago95 + Win2k assets (first run)
     logoff           Log Off confirmation dialog
@@ -69,6 +71,7 @@ fn main() -> ExitCode {
         "files" => files::run(rest),
         "control-panel" => control_panel::run(rest),
         "run" => dialogs::run_dialog(),
+        "system-properties" => sysinfo::run(rest),
         "logoff" => dialogs::logoff(),
         "shutdown" => dialogs::shutdown(),
         "setup" => installer::dispatch(rest),
