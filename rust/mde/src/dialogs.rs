@@ -8,7 +8,7 @@ use std::fmt;
 use std::process::{exit, Command, ExitCode};
 
 use iced::widget::{container, pick_list, text, Column, Row, Space};
-use iced::{Background, Element, Length, Padding, Task};
+use iced::{event, keyboard, Background, Element, Event, Length, Padding, Task};
 
 use mde_ui::{button, palette};
 
@@ -37,6 +37,32 @@ enum M {
     Confirm,
     Cancel,
     Pick(Choice),
+    Event(Event),
+}
+
+/// Map Enter -> default action, Esc -> Cancel.
+fn key_subscription<S>(_: &S) -> iced::Subscription<M> {
+    event::listen().map(M::Event)
+}
+
+fn is_enter(e: &Event) -> bool {
+    matches!(
+        e,
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Enter),
+            ..
+        })
+    )
+}
+
+fn is_escape(e: &Event) -> bool {
+    matches!(
+        e,
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Escape),
+            ..
+        })
+    )
 }
 
 // ---------------- Log Off ----------------
@@ -48,6 +74,7 @@ pub fn logoff() -> ExitCode {
     let r = iced::application(|_: &LogOff| "Log Off Windows".to_string(), logoff_update, logoff_view)
         .window_size(iced::Size::new(320.0, 140.0))
         .resizable(false)
+        .subscription(key_subscription)
         .font(mde_ui::font::REGULAR_BYTES)
         .font(mde_ui::font::BOLD_BYTES)
         .default_font(mde_ui::font::UI)
@@ -65,6 +92,11 @@ fn logoff_update(_: &mut LogOff, m: M) -> Task<M> {
             exit(0);
         }
         M::Cancel => exit(0),
+        M::Event(e) if is_enter(&e) => {
+            let _ = Command::new("swaymsg").arg("exit").spawn();
+            exit(0);
+        }
+        M::Event(e) if is_escape(&e) => exit(0),
         _ => Task::none(),
     }
 }
@@ -73,7 +105,12 @@ fn logoff_view(_: &LogOff) -> Element<'_, M> {
     let buttons = Row::new()
         .spacing(8.0)
         .push(Space::with_width(Length::Fill))
-        .push(button(text("Yes").size(11.0)).on_press(M::Confirm).width(Length::Fixed(76.0)))
+        .push(
+            button(text("Yes").size(11.0))
+                .on_press(M::Confirm)
+                .default(true)
+                .width(Length::Fixed(76.0)),
+        )
         .push(button(text("No").size(11.0)).on_press(M::Cancel).width(Length::Fixed(76.0)));
 
     let body = Column::new()
@@ -117,6 +154,7 @@ pub fn shutdown() -> ExitCode {
     )
     .window_size(iced::Size::new(340.0, 170.0))
     .resizable(false)
+    .subscription(key_subscription)
     .font(mde_ui::font::REGULAR_BYTES)
     .font(mde_ui::font::BOLD_BYTES)
     .default_font(mde_ui::font::UI)
@@ -127,32 +165,29 @@ pub fn shutdown() -> ExitCode {
     }
 }
 
+fn do_shutdown(sel: &Choice) -> ! {
+    let mut cmd = match sel {
+        Choice::LogOff => Command::new("swaymsg"),
+        _ => Command::new("systemctl"),
+    };
+    cmd.arg(match sel {
+        Choice::LogOff => "exit",
+        Choice::ShutDown => "poweroff",
+        Choice::Restart => "reboot",
+        Choice::StandBy => "suspend",
+    });
+    let _ = cmd.spawn();
+    exit(0)
+}
+
 fn shutdown_update(state: &mut Shutdown, m: M) -> Task<M> {
     match m {
         M::Pick(c) => state.sel = c,
         M::Cancel => exit(0),
-        M::Confirm => {
-            let mut cmd = match state.sel {
-                Choice::LogOff => Command::new("swaymsg"),
-                _ => Command::new("systemctl"),
-            };
-            match state.sel {
-                Choice::LogOff => {
-                    cmd.arg("exit");
-                }
-                Choice::ShutDown => {
-                    cmd.arg("poweroff");
-                }
-                Choice::Restart => {
-                    cmd.arg("reboot");
-                }
-                Choice::StandBy => {
-                    cmd.arg("suspend");
-                }
-            }
-            let _ = cmd.spawn();
-            exit(0);
-        }
+        M::Confirm => do_shutdown(&state.sel),
+        M::Event(e) if is_enter(&e) => do_shutdown(&state.sel),
+        M::Event(e) if is_escape(&e) => exit(0),
+        M::Event(_) => {}
     }
     Task::none()
 }
@@ -164,7 +199,12 @@ fn shutdown_view(state: &Shutdown) -> Element<'_, M> {
     let buttons = Row::new()
         .spacing(8.0)
         .push(Space::with_width(Length::Fill))
-        .push(button(text("OK").size(11.0)).on_press(M::Confirm).width(Length::Fixed(76.0)))
+        .push(
+            button(text("OK").size(11.0))
+                .on_press(M::Confirm)
+                .default(true)
+                .width(Length::Fixed(76.0)),
+        )
         .push(button(text("Cancel").size(11.0)).on_press(M::Cancel).width(Length::Fixed(76.0)));
 
     let body = Column::new()

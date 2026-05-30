@@ -33,6 +33,9 @@ where
     /// When true the button renders sunken even when not pressed (toggled on,
     /// e.g. the focused window's taskbar button).
     active: bool,
+    /// The default button in a dialog: drawn with an extra 1px black outline,
+    /// activated by Enter.
+    default: bool,
 }
 
 /// Construct a button around `content`.
@@ -50,6 +53,7 @@ where
         padding: Padding::from([2, 8]),
         face: palette::color(palette::BUTTON_FACE),
         active: false,
+        default: false,
     }
 }
 
@@ -75,6 +79,10 @@ where
     }
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
+        self
+    }
+    pub fn default(mut self, default: bool) -> Self {
+        self.default = default;
         self
     }
 }
@@ -150,7 +158,23 @@ where
         let state = tree.state.downcast_ref::<State>();
         let down = state.is_pressed || self.active;
         let bevel = if down { Bevel::sunken() } else { Bevel::raised() };
-        draw_bevel(renderer, layout.bounds(), bevel, self.face);
+        let b = layout.bounds();
+        if self.default {
+            // Classic default-button: a 1px black outline around the bevel.
+            let black = palette::color(palette::WINDOW_FRAME);
+            fill(renderer, b.x, b.y, b.width, 1.0, black);
+            fill(renderer, b.x, b.y, 1.0, b.height, black);
+            fill(renderer, b.x, b.y + b.height - 1.0, b.width, 1.0, black);
+            fill(renderer, b.x + b.width - 1.0, b.y, 1.0, b.height, black);
+            draw_bevel(
+                renderer,
+                Rectangle { x: b.x + 1.0, y: b.y + 1.0, width: b.width - 2.0, height: b.height - 2.0 },
+                bevel,
+                self.face,
+            );
+        } else {
+            draw_bevel(renderer, b, bevel, self.face);
+        }
 
         let content_layout = layout.children().next().expect("button has one child");
         let content_style = renderer::Style {

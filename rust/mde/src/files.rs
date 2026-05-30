@@ -28,6 +28,8 @@ struct Files {
     entries: Vec<Entry>,
     history: Vec<PathBuf>,
     hpos: usize,
+    selected: Option<usize>,
+    last_click: Option<(usize, std::time::Instant)>,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +74,8 @@ fn launch(start: PathBuf) -> iced::Result {
                 entries: Vec::new(),
                 history: vec![start.clone()],
                 hpos: 0,
+                selected: None,
+                last_click: None,
             };
             f.load();
             (f, Task::none())
@@ -116,6 +120,8 @@ impl Files {
         });
         self.entries = entries;
         self.address = self.cwd.display().to_string();
+        self.selected = None;
+        self.last_click = None;
     }
 
     fn navigate(&mut self, path: PathBuf) {
@@ -130,13 +136,26 @@ impl Files {
 fn update(state: &mut Files, message: Message) -> Task<Message> {
     match message {
         Message::Open(i) => {
-            if let Some(entry) = state.entries.get(i) {
-                if entry.is_dir {
-                    let p = entry.path.clone();
-                    state.navigate(p);
-                } else {
-                    let _ = Command::new("xdg-open").arg(&entry.path).spawn();
+            // Single-click selects; double-click (within 400ms) opens — the
+            // classic Windows shell activation model.
+            let now = std::time::Instant::now();
+            let is_double = state
+                .last_click
+                .map(|(li, lt)| li == i && now.duration_since(lt) < std::time::Duration::from_millis(400))
+                .unwrap_or(false);
+            if is_double {
+                state.last_click = None;
+                if let Some(entry) = state.entries.get(i) {
+                    if entry.is_dir {
+                        let p = entry.path.clone();
+                        state.navigate(p);
+                    } else {
+                        let _ = Command::new("xdg-open").arg(&entry.path).spawn();
+                    }
                 }
+            } else {
+                state.selected = Some(i);
+                state.last_click = Some((i, now));
             }
         }
         Message::Up => {
@@ -183,18 +202,25 @@ fn pad(top: f32, right: f32, bottom: f32, left: f32) -> Padding {
     Padding { top, right, bottom, left }
 }
 
-/// Flat item that highlights navy on hover (menubar entries, list rows).
+/// Flat item that highlights navy on hover (menubar entries).
 fn flat(_theme: &iced::Theme, status: button::Status) -> button::Style {
-    let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-    button::Style {
-        background: hot.then(|| Background::Color(palette::color(palette::HIGHLIGHT))),
-        text_color: if hot {
-            palette::color(palette::HIGHLIGHT_TEXT)
-        } else {
-            palette::color(palette::WINDOW_TEXT)
-        },
-        border: Border::default(),
-        shadow: Shadow::default(),
+    row_style(false)(_theme, status)
+}
+
+/// List-row style: navy when selected or hovered (white text), else plain.
+fn row_style(selected: bool) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
+    move |_theme, status| {
+        let hot = selected || matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: hot.then(|| Background::Color(palette::color(palette::HIGHLIGHT))),
+            text_color: if hot {
+                palette::color(palette::HIGHLIGHT_TEXT)
+            } else {
+                palette::color(palette::WINDOW_TEXT)
+            },
+            border: Border::default(),
+            shadow: Shadow::default(),
+        }
     }
 }
 
@@ -318,7 +344,7 @@ fn list(state: &Files) -> Element<'_, Message> {
                 .on_press(Message::Open(i))
                 .padding(pad(1.0, 4.0, 1.0, 4.0))
                 .width(Length::Fill)
-                .style(flat),
+                .style(row_style(state.selected == Some(i))),
         );
     }
 
