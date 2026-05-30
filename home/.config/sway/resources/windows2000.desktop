@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Windows 2000
+Comment=Classic Windows 2000 desktop (sway + Win2000 theme)
+Exec=/home/mm/.config/sway/scripts/win2000-session.sh
+Type=Application
+DesktopNames=sway;wlroots

@@ -1,0 +1,99 @@
+// ~/.config/waybar/config.jsonc
+// Windows 95-style single BOTTOM taskbar for Waybar 0.15.0 (sway / Wayland).
+// Silver (#c0c0c0) button-face bar with a Start button, virtual-desktop
+// workspace buttons, a window-button taskbar, tray, volume, and clock.
+// Companion styling lives in ~/.config/waybar/style.css.
+//
+// This is JSONC: // comments are permitted, but the file is otherwise
+// strict JSON (no trailing commas) once comments are stripped.
+{
+    // ---- Bar geometry --------------------------------------------------
+    "layer": "top",
+    "position": "bottom",
+    "height": 30,
+    "margin": 0,
+    "spacing": 0,
+
+    // ---- Module placement (left -> center -> right) --------------------
+    "modules-left": ["custom/start", "sway/workspaces"],
+    "modules-center": ["wlr/taskbar"],
+    "modules-right": ["tray", "backlight", "battery", "pulseaudio", "custom/power", "clock"],
+
+    // ---- Start button --------------------------------------------------
+    // Left-click  -> Start menu (File Manager, Terminal, Programs, ...).
+    // Right-click -> System Tools menu (Windows 2000 style).
+    // Absolute paths because Waybar runs on-click via /bin/sh -c.
+    "custom/start": {
+        "format": "⊞ Start",
+        "on-click": "/home/mm/.config/sway/scripts/win95-menu.sh",
+        "on-click-right": "/home/mm/.config/sway/scripts/win95-menu.sh system",
+        "tooltip": false
+    },
+
+    // ---- Virtual desktops (compact numeric workspace buttons) ----------
+    "sway/workspaces": {
+        "disable-scroll": false,
+        "all-outputs": false,
+        "format": "{name}"
+    },
+
+    // ---- Window-button taskbar -----------------------------------------
+    "wlr/taskbar": {
+        "all-outputs": true,
+        "format": "{icon} {title}",
+        "icon-size": 16,
+        "tooltip-format": "{title}",
+        "on-click": "activate",
+        "on-click-middle": "close",
+        "on-click-right": "minimize"
+    },
+
+    // ---- System tray ---------------------------------------------------
+    "tray": {
+        "spacing": 6,
+        "icon-size": 16
+    },
+
+    // ---- Brightness (scroll to adjust; logind SetBrightness, no root) ---
+    "backlight": {
+        "device": "intel_backlight",
+        "format": "BRT {percent}%",
+        "on-scroll-up": "/home/mm/.config/sway/scripts/win95-brightness.sh up",
+        "on-scroll-down": "/home/mm/.config/sway/scripts/win95-brightness.sh down",
+        "tooltip": false
+    },
+
+    // ---- Battery (the Win2000 power meter) -----------------------------
+    "battery": {
+        "format": "BAT {capacity}%",
+        "format-charging": "AC {capacity}%",
+        "format-plugged": "AC {capacity}%",
+        "states": { "warning": 20, "critical": 10 },
+        "tooltip": false
+    },
+
+    // ---- Volume (Win95 "speaker") --------------------------------------
+    "pulseaudio": {
+        "format": "Vol {volume}%",
+        "format-muted": "Vol muted",
+        "on-click": "pavucontrol",
+        "tooltip": false
+    },
+
+    // ---- Power button -> "Shut Down Windows" menu ----------------------
+    "custom/power": {
+        "format": "⏻",
+        "on-click": "/home/mm/.config/sway/scripts/win95-power.sh",
+        "tooltip": false
+    },
+
+    // ---- Clock ---------------------------------------------------------
+    // NOTE: Waybar's clock uses libfmt/std::chrono formatting, which only
+    // supports a subset of strftime. The glibc-only specifiers %e (space-
+    // padded day) and %l (space-padded 12h hour) are INVALID here and throw
+    // "chrono format error". Use %d and %I (zero-padded) instead.
+    "clock": {
+        "format": "{:%a %b %d  %I:%M %p}",
+        "tooltip-format": "<tt>{calendar}</tt>"
+    }
+}

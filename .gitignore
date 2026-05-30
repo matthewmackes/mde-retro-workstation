@@ -1,0 +1,17 @@
+# Python bytecode from the menu/control-panel scripts
+__pycache__/
+*.pyc
+
+# Personal data that can leak into copied config trees
+home/.config/gtk-3.0/bookmarks
+home/.config/**/*.bak.*
+
+# Downloaded/extracted assets (fetched by assets/ installers, never committed)
+/assets/build/
+/assets/cache/
+*.iso
+
+# Editor noise
+*.swp
+*~
+.DS_Store

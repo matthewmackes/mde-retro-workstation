@@ -1,0 +1,136 @@
+/* =========================================================================
+   Windows 95 Start menu for wofi 1.5.3 (drun mode).
+   Silver #d4d0c8 panel, raised 3D bevel, navy left banner stripe,
+   navy/white selection. Crisp 1-2px borders, no rounded corners.
+
+   Widget-tree note (wofi 1.5.3, GTK3):
+     #window > #outer-box > [ #input , #scroll > #inner-box > #entry > (#img #text) ]
+   The navy "Windows 95" left stripe and the inner bevel live on #outer-box
+   so they span the FULL height (search field + result list). #inner-box is
+   only the listbox inside #scroll and would not reach the search field.
+
+   Launch: wofi --show drun --conf ~/.config/wofi/config \
+                --style ~/.config/wofi/style.css
+   ========================================================================= */
+
+* {
+    font-family: "Tahoma", "Droid Sans", "Cantarell", sans-serif;
+    font-size: 12px;
+    border-radius: 0;
+    box-shadow: none;
+    outline: none;
+}
+
+/* ----- Outer window: silver face with a RAISED outer bevel --------------
+   Outer line: white top/left, near-black bottom/right.                  */
+#window {
+    background-color: #d4d0c8;
+    color: #000000;
+    border-style: solid;
+    border-width: 2px;
+    border-top-color: #ffffff;
+    border-left-color: #ffffff;
+    border-bottom-color: #0a0a0a;
+    border-right-color: #0a0a0a;
+    padding: 0;
+}
+
+/* ----- Outer box groups #input + #scroll and carries the SECOND (inner)
+   bevel line AND the full-height navy banner stripe down the left edge.
+   This is the element that spans the whole menu, so the stripe is full
+   height (unlike #inner-box, which only wraps the result rows).        */
+#outer-box {
+    background-color: #d4d0c8;
+    border-style: solid;
+    border-top-width: 1px;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    border-left-width: 26px;
+    border-top-color: #dfdfdf;
+    border-left-color: #0a246a;   /* navy banner stripe down the left edge */
+    border-bottom-color: #808080;
+    border-right-color: #808080;
+    padding: 4px;
+    margin: 0;
+}
+
+/* ----- Prompt / search field: SUNKEN inset field ----------------------- */
+#input {
+    background-color: #ffffff;
+    color: #000000;
+    margin: 0 0 5px 0;
+    padding: 3px 4px;
+    border-style: solid;
+    border-width: 2px;
+    border-top-color: #808080;    /* inverted bevel = sunken */
+    border-left-color: #808080;
+    border-bottom-color: #ffffff;
+    border-right-color: #ffffff;
+}
+
+#input:focus {
+    border-top-color: #404040;
+    border-left-color: #404040;
+    border-bottom-color: #ffffff;
+    border-right-color: #ffffff;
+}
+
+/* ----- Scrolled list ---------------------------------------------------- */
+#scroll {
+    background-color: #d4d0c8;
+    border: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* ----- Inner box: the listbox that holds the entries. Transparent so the
+   #outer-box silver/banner shows through; no border of its own. -------- */
+#inner-box {
+    background-color: #d4d0c8;
+    border: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* ----- Entries: black text on silver ----------------------------------- */
+#inner-box #entry {
+    background-color: #d4d0c8;
+    color: #000000;
+    padding: 3px 4px;
+    margin: 0;
+    border: none;
+}
+
+/* Icon sits next to the text */
+#inner-box #entry #img {
+    margin-right: 6px;
+}
+
+#inner-box #entry #text {
+    color: #000000;
+}
+
+/* ----- Selected / focused entry: navy bar, white text ------------------ */
+#window #inner-box #entry:selected,
+#inner-box #entry:selected,
+#entry:selected {
+    background-color: #0a246a;
+    color: #ffffff;
+    border: none;
+}
+
+#window #inner-box #entry:selected #text,
+#inner-box #entry:selected #text,
+#entry:selected #text {
+    color: #ffffff;
+}
+
+/* Mouse hover mirrors keyboard selection */
+#inner-box #entry:hover {
+    background-color: #0a246a;
+    color: #ffffff;
+}
+
+#inner-box #entry:hover #text {
+    color: #ffffff;
+}

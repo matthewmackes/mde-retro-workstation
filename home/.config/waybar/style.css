@@ -1,0 +1,302 @@
+/* ~/.config/waybar/style.css
+ * Windows 95-style BOTTOM taskbar for Waybar 0.15.0 (GTK3 CSS subset).
+ * Companion to ~/.config/waybar/config.jsonc.
+ *
+ * Palette (matches the existing sway Win95 theme):
+ *   face      #d4d0c8   button-face silver  (bar + button background)
+ *   light     #ffffff   highlight (top/left of a raised edge)
+ *   darkgray  #808080   soft shadow (bottom/right, the gentler edge)
+ *   shadow    #404040   hard shadow (bottom/right, the strong edge)
+ *   navy      #0a246a   selection / focus accent
+ *   white     #ffffff   selection text
+ *   black     #000000   default text
+ *
+ * 3D bevels are drawn with a SINGLE 2px border per side.  GTK3's CSS
+ * "border" is one solid line and cannot render Win95's authentic
+ * double line (an inner #dfdfdf/#808080 highlight inside an outer
+ * #ffffff/#404040 one) on a single widget, so each edge here is one
+ * crisp 2px line:
+ *   RAISED  -> top/left light, bottom/right dark   (buttons at rest)
+ *   SUNKEN  -> top/left dark,  bottom/right light   (pressed / active / insets)
+ * No border-radius, no box-shadow, no transitions, no border-image.
+ */
+
+/* ---- Reset every widget to the flat, square Win95 baseline --------- */
+* {
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    text-shadow: none;
+    font-family: "Tahoma", "Droid Sans", "Cantarell", sans-serif;
+    font-size: 12px;
+    font-weight: normal;
+}
+
+/* ---- The bar itself ------------------------------------------------- */
+window#waybar {
+    background-color: #d4d0c8;
+    color: #000000;
+    /* Thin highlight line along the very top edge of the taskbar. */
+    border-top: 1px solid #ffffff;
+}
+
+/* Module group containers stay transparent; spacing handled per widget. */
+.modules-left,
+.modules-center,
+.modules-right {
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+/* Give the bar a touch of breathing room at the outer edges. */
+.modules-left {
+    padding-left: 2px;
+}
+.modules-right {
+    padding-right: 2px;
+}
+
+/* ===================================================================
+ * START BUTTON  (#custom-start)
+ * Raised silver button at rest -> SUNKEN when pressed (:active).
+ * =================================================================== */
+#custom-start {
+    background-color: #d4d0c8;
+    color: #000000;
+    font-weight: bold;
+    padding: 1px 8px 2px 6px;
+    margin: 2px 4px 2px 2px;
+    min-width: 54px;
+    /* RAISED single 2px bevel: light top/left, shadow bottom/right. */
+    border-top: 2px solid #ffffff;
+    border-left: 2px solid #ffffff;
+    border-right: 2px solid #404040;
+    border-bottom: 2px solid #404040;
+}
+
+/* Hover: stay raised but lighten the face for feedback. */
+#custom-start:hover {
+    background-color: #d4d0c8;
+    color: #000000;
+}
+
+/* Pressed: INVERTED bevel (sunken) + nudge label down-right 1px. */
+#custom-start:active {
+    background-color: #d4d0c8;
+    color: #000000;
+    border-top: 2px solid #404040;
+    border-left: 2px solid #404040;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+    padding: 2px 7px 1px 7px;
+}
+
+/* ===================================================================
+ * WORKSPACES  (sway/workspaces)
+ * Compact raised silver buttons; focused workspace = navy selection.
+ * =================================================================== */
+#workspaces {
+    background-color: transparent;
+    margin: 2px 2px;
+}
+
+#workspaces button {
+    background-color: #d4d0c8;
+    color: #000000;
+    padding: 0 6px;
+    margin: 0 2px;
+    min-width: 20px;
+    /* RAISED bevel softened to white + dark-gray for a truer Win95 edge. */
+    border-top: 2px solid #ffffff;
+    border-left: 2px solid #ffffff;
+    border-right: 2px solid #808080;
+    border-bottom: 2px solid #808080;
+}
+
+#workspaces button:hover {
+    background-color: #d4d0c8;
+    color: #000000;
+}
+
+/* Focused workspace: SUNKEN bevel with the Windows 2000 active-title
+ * gradient (dark navy -> medium blue) and white text. */
+#workspaces button.focused {
+    background-color: #0a246a;
+    background-image: linear-gradient(to right, #0a246a, #3a6ea5);
+    color: #ffffff;
+    border-top: 2px solid #404040;
+    border-left: 2px solid #404040;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+}
+
+#workspaces button.urgent {
+    background-color: #800000;
+    color: #ffffff;
+    border-top: 2px solid #404040;
+    border-left: 2px solid #404040;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+}
+
+/* ===================================================================
+ * TASKBAR  (wlr/taskbar -> #taskbar)
+ * Raised app buttons with icon + title; active window = SUNKEN.
+ * =================================================================== */
+#taskbar {
+    background-color: transparent;
+    margin: 2px 0;
+    padding: 0;
+}
+
+#taskbar button {
+    background-color: #d4d0c8;
+    color: #000000;
+    font-weight: normal;
+    padding: 1px 8px 1px 6px;
+    margin: 0 3px;
+    min-width: 130px;
+    /* RAISED single 2px bevel. */
+    border-top: 2px solid #ffffff;
+    border-left: 2px solid #ffffff;
+    border-right: 2px solid #404040;
+    border-bottom: 2px solid #404040;
+}
+
+/* Hover: subtle lightened face, bevel unchanged. */
+#taskbar button:hover {
+    background-color: #d4d0c8;
+    color: #000000;
+}
+
+/* Active (focused window): SUNKEN/pressed bevel, label pushed 1px. */
+#taskbar button.active {
+    background-color: #d4d0c8;
+    color: #000000;
+    font-weight: bold;
+    border-top: 2px solid #404040;
+    border-left: 2px solid #404040;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+    padding: 2px 7px 0px 7px;
+}
+
+/* Pressing any taskbar button reads as sunken too. */
+#taskbar button:active {
+    background-color: #d4d0c8;
+    border-top: 2px solid #404040;
+    border-left: 2px solid #404040;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+    padding: 2px 7px 0px 7px;
+}
+
+/* ===================================================================
+ * TRAY  (#tray)
+ * Sunken silver well that hosts the status icons + its popup menu.
+ * =================================================================== */
+#tray {
+    background-color: #d4d0c8;
+    padding: 1px 4px;
+    margin: 3px 3px;
+    /* SUNKEN well so the tray icons sit in a recessed panel. */
+    border-top: 2px solid #404040;
+    border-left: 2px solid #404040;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+}
+
+#tray > .passive {
+    -gtk-icon-effect: none;
+}
+
+/* Tray icon with an open menu: navy selection accent (Win95 pressed look). */
+#tray > .active {
+    background-color: #0a246a;
+}
+
+#tray > .needs-attention {
+    -gtk-icon-effect: highlight;
+    background-color: #800000;
+}
+
+/* Tray popup menus: silver face, navy highlight, square corners. */
+#tray menu {
+    background-color: #d4d0c8;
+    color: #000000;
+    border-top: 2px solid #ffffff;
+    border-left: 2px solid #ffffff;
+    border-right: 2px solid #404040;
+    border-bottom: 2px solid #404040;
+    padding: 2px;
+}
+
+#tray menu menuitem {
+    background-color: #d4d0c8;
+    color: #000000;
+    padding: 2px 18px 2px 8px;
+}
+
+#tray menu menuitem:hover {
+    background-color: #0a246a;
+    color: #ffffff;
+}
+
+/* ===================================================================
+ * NOTIFICATION AREA  (brightness / battery / volume / power)
+ * Raised silver buttons to match the taskbar look.
+ * =================================================================== */
+#pulseaudio,
+#backlight,
+#battery,
+#custom-power {
+    background-color: #d4d0c8;
+    color: #000000;
+    padding: 1px 8px;
+    margin: 3px 3px;
+    border-top: 2px solid #ffffff;
+    border-left: 2px solid #ffffff;
+    border-right: 2px solid #404040;
+    border-bottom: 2px solid #404040;
+}
+
+#pulseaudio:hover,
+#backlight:hover,
+#battery:hover,
+#custom-power:hover {
+    background-color: #e4e0d8;
+}
+
+/* Pressed power button reads as sunken. */
+#custom-power:active {
+    border-top: 2px solid #404040;
+    border-left: 2px solid #404040;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+}
+
+#pulseaudio.muted { color: #808080; }
+#battery.warning  { color: #806000; }
+#battery.critical { color: #800000; }
+
+/* ===================================================================
+ * CLOCK  (#clock)
+ * SUNKEN inset panel, black text on silver — the system-tray clock.
+ * =================================================================== */
+#clock {
+    background-color: #d4d0c8;
+    color: #000000;
+    font-weight: normal;
+    padding: 1px 10px;
+    margin: 3px 4px 3px 2px;
+    min-width: 96px;
+    /* SUNKEN bevel: top/left dark, bottom/right light. */
+    border-top: 2px solid #404040;
+    border-left: 2px solid #404040;
+    border-right: 2px solid #ffffff;
+    border-bottom: 2px solid #ffffff;
+}
