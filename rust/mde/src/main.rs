@@ -17,6 +17,7 @@ mod files;
 mod install;
 mod menu;
 mod panel;
+mod sway;
 
 const USAGE: &str = "\
 mde — Windows 2000 desktop shell for Sway (MDE-Retro)
