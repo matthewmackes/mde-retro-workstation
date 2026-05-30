@@ -71,6 +71,16 @@ fn color_conversion_is_exact_8bit() {
     assert_eq!((c.b * 255.0).round() as u8, 0xa5);
 }
 
+/// App-chrome colors live in the palette too, so nothing outside it names a
+/// raw hex; pin them so a future hand-tuned literal fails here instead.
+#[test]
+fn app_chrome_colors_are_pinned() {
+    assert_eq!(palette::INFO_BAND, (0x1d, 0x5c, 0xa8));
+    assert_eq!(palette::SETUP_GRADIENT_TOP, (0x1c, 0x4a, 0x8f));
+    assert_eq!(palette::SETUP_GRADIENT_BOTTOM, (0x08, 0x16, 0x40));
+    assert_eq!(palette::SETUP_PROGRESS, (0x16, 0x3a, 0xa8));
+}
+
 // --- Metrics ---------------------------------------------------------------
 
 #[test]

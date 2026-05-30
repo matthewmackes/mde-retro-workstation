@@ -12,7 +12,7 @@ use std::process::{Command, ExitCode};
 use iced::widget::{button, container, scrollable, text, text_input, Column, Row};
 use iced::{Background, Border, Element, Length, Padding, Shadow, Task};
 
-use mde_ui::{frame, palette};
+use mde_ui::{frame, metrics, palette};
 
 #[derive(Debug, Clone)]
 struct Entry {
@@ -248,7 +248,7 @@ fn menubar<'a>() -> Element<'a, Message> {
     let mut bar = Row::new().spacing(0.0);
     for label in ["File", "Edit", "View", "Favorites", "Tools", "Help"] {
         bar = bar.push(
-            button(text(label).size(11.0))
+            button(text(label).size(metrics::UI_PX))
                 .on_press(Message::Noop)
                 .padding(pad(2.0, 8.0, 2.0, 8.0))
                 .style(flat),
@@ -264,7 +264,7 @@ fn menubar<'a>() -> Element<'a, Message> {
 }
 
 fn tool<'a>(label: &'a str, msg: Message) -> Element<'a, Message> {
-    button(text(label).size(11.0))
+    button(text(label).size(metrics::UI_PX))
         .on_press(msg)
         .padding(pad(2.0, 8.0, 2.0, 8.0))
         .style(flat)
@@ -296,12 +296,12 @@ fn address_bar(state: &Files) -> Element<'_, Message> {
         .spacing(6.0)
         .padding(pad(2.0, 4.0, 2.0, 4.0))
         .align_y(iced::Alignment::Center)
-        .push(text("Address").size(11.0))
+        .push(text("Address").size(metrics::UI_PX))
         .push(
             text_input("path", &state.address)
                 .on_input(Message::AddressChanged)
                 .on_submit(Message::GoAddress)
-                .size(11.0)
+                .size(metrics::UI_PX)
                 .width(Length::Fill),
         )
         .push(tool("Go", Message::GoAddress))
@@ -311,7 +311,7 @@ fn address_bar(state: &Files) -> Element<'_, Message> {
 fn header_cell<'a>(label: &'a str, width: Length) -> Element<'a, Message> {
     iced::widget::stack![
         frame::raised().thickness(1),
-        container(text(label).size(11.0))
+        container(text(label).size(metrics::UI_PX))
             .padding(pad(1.0, 6.0, 1.0, 6.0))
             .width(width),
     ]
@@ -332,13 +332,13 @@ fn list(state: &Files) -> Element<'_, Message> {
     let mut rows = Column::new().spacing(0.0);
     for (i, e) in state.entries.iter().enumerate() {
         let row = Row::new()
-            .push(text(e.name.clone()).size(11.0).width(name_w))
+            .push(text(e.name.clone()).size(metrics::UI_PX).width(name_w))
             .push(
                 text(if e.is_dir { String::new() } else { human(e.size) })
-                    .size(11.0)
+                    .size(metrics::UI_PX)
                     .width(size_w),
             )
-            .push(text(kind(e)).size(11.0).width(type_w));
+            .push(text(kind(e)).size(metrics::UI_PX).width(type_w));
         rows = rows.push(
             button(row)
                 .on_press(Message::Open(i))
@@ -362,7 +362,7 @@ fn list(state: &Files) -> Element<'_, Message> {
 fn status_bar(state: &Files) -> Element<'_, Message> {
     container(iced::widget::stack![
         frame::sunken().thickness(1),
-        container(text(format!("{} object(s)", state.entries.len())).size(11.0))
+        container(text(format!("{} object(s)", state.entries.len())).size(metrics::UI_PX))
             .padding(pad(1.0, 6.0, 1.0, 6.0)),
     ])
     .width(Length::Fill)

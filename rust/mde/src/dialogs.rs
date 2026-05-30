@@ -10,7 +10,7 @@ use std::process::{exit, Command, ExitCode};
 use iced::widget::{container, pick_list, text, Column, Row, Space};
 use iced::{event, keyboard, Background, Element, Event, Length, Padding, Task};
 
-use mde_ui::{button, palette};
+use mde_ui::{button, metrics, palette};
 
 fn pad(top: f32, right: f32, bottom: f32, left: f32) -> Padding {
     Padding { top, right, bottom, left }
@@ -106,16 +106,16 @@ fn logoff_view(_: &LogOff) -> Element<'_, M> {
         .spacing(8.0)
         .push(Space::with_width(Length::Fill))
         .push(
-            button(text("Yes").size(11.0))
+            button(text("Yes").size(metrics::UI_PX))
                 .on_press(M::Confirm)
                 .default(true)
                 .width(Length::Fixed(76.0)),
         )
-        .push(button(text("No").size(11.0)).on_press(M::Cancel).width(Length::Fixed(76.0)));
+        .push(button(text("No").size(metrics::UI_PX)).on_press(M::Cancel).width(Length::Fixed(76.0)));
 
     let body = Column::new()
         .spacing(16.0)
-        .push(text("Are you sure you want to log off?").size(11.0))
+        .push(text("Are you sure you want to log off?").size(metrics::UI_PX))
         .push(buttons);
 
     silver(body)
@@ -194,22 +194,22 @@ fn shutdown_update(state: &mut Shutdown, m: M) -> Task<M> {
 
 fn shutdown_view(state: &Shutdown) -> Element<'_, M> {
     let choices = vec![Choice::LogOff, Choice::ShutDown, Choice::Restart, Choice::StandBy];
-    let drop = pick_list(choices, Some(state.sel.clone()), M::Pick).text_size(11.0);
+    let drop = pick_list(choices, Some(state.sel.clone()), M::Pick).text_size(metrics::UI_PX);
 
     let buttons = Row::new()
         .spacing(8.0)
         .push(Space::with_width(Length::Fill))
         .push(
-            button(text("OK").size(11.0))
+            button(text("OK").size(metrics::UI_PX))
                 .on_press(M::Confirm)
                 .default(true)
                 .width(Length::Fixed(76.0)),
         )
-        .push(button(text("Cancel").size(11.0)).on_press(M::Cancel).width(Length::Fixed(76.0)));
+        .push(button(text("Cancel").size(metrics::UI_PX)).on_press(M::Cancel).width(Length::Fixed(76.0)));
 
     let body = Column::new()
         .spacing(14.0)
-        .push(text("What do you want the computer to do?").size(11.0))
+        .push(text("What do you want the computer to do?").size(metrics::UI_PX))
         .push(drop)
         .push(buttons);
 

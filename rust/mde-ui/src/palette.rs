@@ -38,6 +38,20 @@ pub const INFO_TEXT: Rgb = (0x00, 0x00, 0x00); // tooltip
 pub const INFO_WINDOW: Rgb = (0xff, 0xff, 0xe1);
 pub const URGENT: Rgb = (0x80, 0x00, 0x00); // MDE-Retro: urgent window (maroon)
 
+// --- MDE-Retro app chrome (NOT GetSysColor) --------------------------------
+// Colors for surfaces Windows 2000 drew with bespoke art rather than a system
+// color: the Explorer / Control-Panel "web view" info band and the Setup
+// wizard's blue. They live here, separated from the system table above, so that
+// NOTHING outside this module names a raw hex value.
+/// The Explorer / Control Panel web-view info band (left blue pane).
+pub const INFO_BAND: Rgb = (0x1d, 0x5c, 0xa8);
+/// GUI Setup background gradient (top → bottom).
+pub const SETUP_GRADIENT_TOP: Rgb = (0x1c, 0x4a, 0x8f);
+pub const SETUP_GRADIENT_BOTTOM: Rgb = (0x08, 0x16, 0x40);
+/// GUI Setup progress-bar fill, and the dimmed (pending/subtitle) text on it.
+pub const SETUP_PROGRESS: Rgb = (0x16, 0x3a, 0xa8);
+pub const SETUP_SUBTITLE: Rgb = (0x9e, 0xb2, 0xdb);
+
 /// Convert a palette [`Rgb`] into an `iced::Color`.
 pub fn color(rgb: Rgb) -> iced::Color {
     iced::Color::from_rgb8(rgb.0, rgb.1, rgb.2)

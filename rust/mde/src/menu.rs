@@ -303,7 +303,7 @@ fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> El
         .height(Length::Fixed(SEP_H))
         .padding(pad(3.0, 6.0, 3.0, 6.0))
         .into(),
-        Node::Leaf(label, _) => button(text(label).size(11.0))
+        Node::Leaf(label, _) => button(text(label).size(metrics::UI_PX))
             .on_press(Message::Click(col, idx))
             .width(Length::Fill)
             .height(Length::Fixed(ITEM_H))
@@ -312,8 +312,8 @@ fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> El
             .into(),
         Node::Sub(label, _) => button(
             Row::new()
-                .push(text(label).size(11.0).width(Length::Fill))
-                .push(text(">").size(11.0)),
+                .push(text(label).size(metrics::UI_PX).width(Length::Fill))
+                .push(text(">").size(metrics::UI_PX)),
         )
         .on_press(Message::Click(col, idx))
         .width(Length::Fill)

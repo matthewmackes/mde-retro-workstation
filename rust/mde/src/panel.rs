@@ -96,7 +96,7 @@ fn view(state: &Panel) -> Element<'_, Message> {
         .spacing(2.0)
         .height(Length::Fill)
         .push(
-            button(text("\u{2756} Start").size(11.0))
+            button(text("\u{2756} Start").size(metrics::UI_PX))
                 .on_press(Message::Start)
                 .height(Length::Fill),
         )
@@ -104,7 +104,7 @@ fn view(state: &Panel) -> Element<'_, Message> {
 
     for w in &state.windows {
         bar = bar.push(
-            button(text(truncate(&w.title, 22)).size(11.0))
+            button(text(truncate(&w.title, 22)).size(metrics::UI_PX))
                 .on_press(Message::Focus(w.id))
                 .active(w.focused)
                 .width(Length::Fixed(metrics::TASKBAR_BUTTON_MIN as f32))
@@ -115,7 +115,7 @@ fn view(state: &Panel) -> Element<'_, Message> {
     bar = bar.push(Space::with_width(Length::Fill));
 
     let clock = Stack::new().push(frame::sunken()).push(
-        container(text(state.clock.clone()).size(11.0))
+        container(text(state.clock.clone()).size(metrics::UI_PX))
             .center_y(Length::Fill)
             .padding(Padding {
                 top: 0.0,

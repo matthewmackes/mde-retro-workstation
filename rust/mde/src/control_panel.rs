@@ -13,13 +13,11 @@
 use std::process::ExitCode;
 
 use iced::widget::{button, container, scrollable, text, Column, Row, Space};
-use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Task};
+use iced::{Background, Border, Element, Length, Padding, Shadow, Task};
 
-use mde_ui::{frame, palette};
+use mde_ui::{frame, metrics, palette};
 
 use crate::fedora;
-
-const BLUE: Color = Color::from_rgb(0x1d as f32 / 255.0, 0x5c as f32 / 255.0, 0xa8 as f32 / 255.0);
 
 pub fn run(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
@@ -115,7 +113,7 @@ fn menubar<'a>() -> Element<'a, Message> {
     let mut bar = Row::new();
     for label in ["File", "Edit", "View", "Favorites", "Tools", "Help"] {
         bar = bar.push(
-            button(text(label).size(11.0))
+            button(text(label).size(metrics::UI_PX))
                 .on_press(Message::Noop)
                 .padding(pad(2.0, 8.0, 2.0, 8.0))
                 .style(flat),
@@ -131,38 +129,38 @@ fn menubar<'a>() -> Element<'a, Message> {
 }
 
 fn sidebar<'a>() -> Element<'a, Message> {
-    let white = Color::WHITE;
+    let white = palette::color(palette::WINDOW);
     let bold = mde_ui::font::UI_BOLD;
     let col = Column::new()
         .spacing(8.0)
         .padding(pad(10.0, 12.0, 10.0, 12.0))
         .push(text("Control Panel").size(15.0).font(bold).color(white))
         .push(container(Space::new(Length::Fill, Length::Fixed(2.0))).style(
-            |_| container::Style {
-                background: Some(Background::Color(Color::WHITE)),
+            move |_| container::Style {
+                background: Some(Background::Color(white)),
                 ..container::Style::default()
             },
         ))
         .push(
             text("Select an item to view its description.")
-                .size(11.0)
+                .size(metrics::UI_PX)
                 .color(white),
         )
         .push(
             text("Configures your computer and adds or removes programs and devices.")
-                .size(11.0)
+                .size(metrics::UI_PX)
                 .color(white),
         )
         .push(Space::new(Length::Fill, Length::Fixed(8.0)))
-        .push(text("See also:").size(11.0).color(white))
-        .push(text("Administrative Tools").size(11.0).color(white))
-        .push(text("Windows Update").size(11.0).color(white));
+        .push(text("See also:").size(metrics::UI_PX).color(white))
+        .push(text("Administrative Tools").size(metrics::UI_PX).color(white))
+        .push(text("Windows Update").size(metrics::UI_PX).color(white));
 
     container(col)
         .width(Length::Fixed(190.0))
         .height(Length::Fill)
         .style(|_| container::Style {
-            background: Some(Background::Color(BLUE)),
+            background: Some(Background::Color(palette::color(palette::INFO_BAND))),
             ..container::Style::default()
         })
         .into()
@@ -173,7 +171,7 @@ fn grid(state: &ControlPanel) -> Element<'_, Message> {
     let mut col = Column::new().spacing(0.0).padding(pad(4.0, 4.0, 4.0, 6.0));
     for category in fedora::categories() {
         col = col.push(
-            container(text(category).size(11.0).font(bold)).padding(pad(5.0, 6.0, 1.0, 4.0)),
+            container(text(category).size(metrics::UI_PX).font(bold)).padding(pad(5.0, 6.0, 1.0, 4.0)),
         );
         for (i, tool) in fedora::TOOLS.iter().enumerate() {
             if tool.category != category {
@@ -185,7 +183,7 @@ fn grid(state: &ControlPanel) -> Element<'_, Message> {
                 format!("{}  (install)", tool.name)
             };
             col = col.push(
-                button(text(label).size(11.0))
+                button(text(label).size(metrics::UI_PX))
                     .on_press(Message::Activate(i))
                     .width(Length::Fill)
                     .padding(pad(2.0, 8.0, 2.0, 8.0))
@@ -205,7 +203,7 @@ fn status_bar<'a>() -> Element<'a, Message> {
     let missing = fedora::missing().len();
     container(iced::widget::stack![
         frame::sunken().thickness(1),
-        container(text(format!("{total} items, {missing} not installed")).size(11.0))
+        container(text(format!("{total} items, {missing} not installed")).size(metrics::UI_PX))
             .padding(pad(1.0, 6.0, 1.0, 6.0)),
     ])
     .width(Length::Fill)
