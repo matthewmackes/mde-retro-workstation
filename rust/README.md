@@ -15,7 +15,7 @@ Waybar, and wofi with one lean binary.
 | Crate     | What                                                                 |
 | --------- | ------------------------------------------------------------------- |
 | `mde-ui`  | Win2000 Classic palette, metrics, and the 3D-bevel widget model (iced) |
-| `mde`     | the single `mde` binary: `panel`, `menu`, `files`, `control-panel`, `setup`, `install`, `logoff`, `shutdown` |
+| `mde`     | the single `mde` binary: `panel`, `menu`, `files`, `control-panel`, `setup`, `install`, `run`, `logoff`, `shutdown` |
 
 - **Toolkit:** iced (pure Rust, wgpu). Taskbar + Start menu use `iced_layershell`
   (wlr-layer-shell); the file manager is a normal xdg-toplevel window.

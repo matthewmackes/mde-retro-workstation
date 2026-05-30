@@ -36,6 +36,7 @@ COMMANDS:
     menu [MODE]      Start menu (modes: main, programs, system, run)
     files [PATH]     Explorer-style file manager
     control-panel    Windows 2000 Control Panel
+    run              Run dialog (type a command to launch)
     install [--assets]   Fetch Chicago95 + Win2k assets (first run)
 
     -h, --help       Show this help
@@ -64,6 +65,7 @@ fn main() -> ExitCode {
         "menu" => menu::run(rest),
         "files" => files::run(rest),
         "control-panel" => control_panel::run(rest),
+        "run" => dialogs::run_dialog(),
         "logoff" => dialogs::logoff(),
         "shutdown" => dialogs::shutdown(),
         "setup" => installer::dispatch(rest),
