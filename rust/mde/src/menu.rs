@@ -224,11 +224,7 @@ fn run_act(act: &Act) {
             }
         }
         Act::Cmd(cmd, terminal) => launch_cmd(cmd, *terminal),
-        Act::Mde(sub) => {
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = Command::new(exe).arg(sub).spawn();
-            }
-        }
+        Act::Mde(sub) => mde_self(sub),
         Act::Run => {
             let _ = Command::new("wofi").args(["--show", "run"]).spawn();
         }
@@ -236,12 +232,14 @@ fn run_act(act: &Act) {
             "echo 'MDE-Retro — Start=Win  Run=Win+R  Close=Alt+F4  Switch=Alt+Tab  My Computer=Win+E'; read -p 'Press Enter to close '",
             true,
         ),
-        Act::LogOff => {
-            let _ = Command::new("swaymsg").arg("exit").spawn(); // TODO: confirm dialog
-        }
-        Act::ShutDown => {
-            let _ = Command::new("systemctl").arg("poweroff").spawn(); // TODO: dialog
-        }
+        Act::LogOff => mde_self("logoff"),
+        Act::ShutDown => mde_self("shutdown"),
+    }
+}
+
+fn mde_self(sub: &str) {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = Command::new(exe).arg(sub).spawn();
     }
 }
 

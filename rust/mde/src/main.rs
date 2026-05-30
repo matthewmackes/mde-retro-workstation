@@ -14,6 +14,7 @@ use std::process::ExitCode;
 
 mod apps;
 mod control_panel;
+mod dialogs;
 mod fedora;
 mod files;
 mod install;
@@ -61,6 +62,8 @@ fn main() -> ExitCode {
         "menu" => menu::run(rest),
         "files" => files::run(rest),
         "control-panel" => control_panel::run(rest),
+        "logoff" => dialogs::logoff(),
+        "shutdown" => dialogs::shutdown(),
         "install" => install::run(rest),
         "-V" | "--version" => {
             println!("mde {}", env!("CARGO_PKG_VERSION"));
