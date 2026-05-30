@@ -14,8 +14,13 @@ use serde::Deserialize;
 pub struct Window {
     pub id: i64,
     pub title: String,
+    /// App id / X11 class — the window's identity (used to pick its taskbar
+    /// icon). Parsed now; the icon lookup lands with the icon-themed buttons.
+    #[allow(dead_code)]
     pub app_id: String,
     pub focused: bool,
+    /// Workspace the window lives on (for future per-workspace grouping).
+    #[allow(dead_code)]
     pub workspace: String,
 }
 
@@ -93,7 +98,9 @@ pub fn focus(id: i64) -> anyhow::Result<()> {
     run(&format!("[con_id={id}] focus"))
 }
 
-/// Close a window by its sway container id.
+/// Close a window by its sway container id (taskbar middle-click / context
+/// menu). Pairs with [`focus`]; wired up with the taskbar window menu.
+#[allow(dead_code)]
 pub fn close(id: i64) -> anyhow::Result<()> {
     run(&format!("[con_id={id}] kill"))
 }

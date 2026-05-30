@@ -25,9 +25,6 @@ pub struct Tool {
     pub icons: &'static [&'static str],
 }
 
-const T: fn(&'static str, &'static str, &'static str, bool, &'static str, &'static str, &'static [&'static str]) -> Tool =
-    |category, name, command, terminal, package, detect_bin, icons| Tool { category, name, command, terminal, package, detect_bin, icons };
-
 /// The full tool table. Categories order = menu/Control Panel order.
 pub const TOOLS: &[Tool] = &[
     // --- Control Panel (classic applets) -----------------------------------

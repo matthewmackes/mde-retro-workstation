@@ -82,9 +82,3 @@ fn main() -> ExitCode {
         }
     }
 }
-
-/// Shared placeholder used by the scaffolded subcommands.
-pub(crate) fn not_implemented(name: &str) -> ExitCode {
-    eprintln!("mde {name}: not yet implemented (rust-shell scaffold).");
-    ExitCode::from(69) // EX_UNAVAILABLE
-}
