@@ -13,9 +13,28 @@ pub use button::{button, Button};
 pub use frame::BevelFrame;
 
 use iced::advanced::renderer;
-use iced::{Border, Color, Rectangle, Shadow};
+use iced::widget::text_input;
+use iced::{Background, Border, Color, Rectangle, Shadow};
 
 use crate::palette;
+
+/// The Win2000 sunken-white text field: `COLOR_WINDOW` fill with a recessed 1px
+/// edge. Pass to `text_input(...).style(mde_ui::sunken_field)` so form fields
+/// obey the rule for their kind instead of shipping the iced default.
+pub fn sunken_field(_theme: &iced::Theme, _status: text_input::Status) -> text_input::Style {
+    text_input::Style {
+        background: Background::Color(palette::color(palette::WINDOW)),
+        border: Border {
+            color: palette::color(palette::BUTTON_SHADOW),
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+        icon: palette::color(palette::WINDOW_TEXT),
+        placeholder: palette::color(palette::GRAY_TEXT),
+        value: palette::color(palette::WINDOW_TEXT),
+        selection: palette::color(palette::HIGHLIGHT),
+    }
+}
 
 /// Fill an axis-aligned rectangle with a solid color (skips degenerate rects).
 /// The one quad primitive every Win2000 edge is built from.

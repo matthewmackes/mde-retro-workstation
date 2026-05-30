@@ -305,7 +305,8 @@ fn address_bar(state: &Files) -> Element<'_, Message> {
                 .on_input(Message::AddressChanged)
                 .on_submit(Message::GoAddress)
                 .size(metrics::UI_PX)
-                .width(Length::Fill),
+                .width(Length::Fill)
+                .style(mde_ui::sunken_field),
         )
         .push(tool("Go", Some(Message::GoAddress)))
         .into()

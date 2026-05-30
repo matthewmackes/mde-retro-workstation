@@ -16,4 +16,4 @@ pub mod palette;
 pub mod widget;
 
 pub use palette::{color, Rgb};
-pub use widget::{button, frame, Bevel, BevelFrame, Button};
+pub use widget::{button, frame, sunken_field, Bevel, BevelFrame, Button};

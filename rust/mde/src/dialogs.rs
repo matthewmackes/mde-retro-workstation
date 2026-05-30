@@ -267,29 +267,13 @@ fn run_update(state: &mut Run, m: RunMsg) -> Task<RunMsg> {
     Task::none()
 }
 
-/// A sunken-white Win2000 text field (COLOR_WINDOW with a recessed edge).
-fn field_style(_t: &iced::Theme, _s: text_input::Status) -> text_input::Style {
-    text_input::Style {
-        background: Background::Color(palette::color(palette::WINDOW)),
-        border: iced::Border {
-            color: palette::color(palette::BUTTON_SHADOW),
-            width: 1.0,
-            radius: 0.0.into(),
-        },
-        icon: palette::color(palette::WINDOW_TEXT),
-        placeholder: palette::color(palette::GRAY_TEXT),
-        value: palette::color(palette::WINDOW_TEXT),
-        selection: palette::color(palette::HIGHLIGHT),
-    }
-}
-
 fn run_view(state: &Run) -> Element<'_, RunMsg> {
     let field = text_input("", &state.cmd)
         .on_input(RunMsg::Input)
         .on_submit(RunMsg::Ok)
         .size(metrics::UI_PX)
         .padding(pad(3.0, 4.0, 3.0, 4.0))
-        .style(field_style);
+        .style(mde_ui::sunken_field);
 
     let buttons = Row::new()
         .spacing(8.0)
