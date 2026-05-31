@@ -8,14 +8,16 @@ pub mod bevel;
 pub mod button;
 pub mod flag;
 pub mod frame;
+pub mod groupbox;
 pub mod infoband;
 
 pub use bevel::Bevel;
 pub use button::{button, Button};
 pub use frame::BevelFrame;
+pub use groupbox::group_box;
 
 use iced::advanced::renderer;
-use iced::widget::{container, pick_list, scrollable, text_input};
+use iced::widget::{checkbox, container, pick_list, progress_bar, radio, scrollable, text_input};
 use iced::{Background, Border, Color, Rectangle, Shadow};
 
 use crate::palette;
@@ -77,6 +79,48 @@ pub fn sunken_field(_theme: &iced::Theme, _status: text_input::Status) -> text_i
         placeholder: palette::color(palette::GRAY_TEXT),
         value: palette::color(palette::WINDOW_TEXT),
         selection: palette::color(palette::HIGHLIGHT),
+    }
+}
+
+/// The Win2000 check box: a sunken white box with a black check, label in
+/// window text. Pass to `checkbox(label, checked).style(mde_ui::checkbox_style)`.
+pub fn checkbox_style(_theme: &iced::Theme, _status: checkbox::Status) -> checkbox::Style {
+    checkbox::Style {
+        background: Background::Color(palette::color(palette::WINDOW)),
+        icon_color: palette::color(palette::WINDOW_TEXT),
+        border: Border {
+            color: palette::color(palette::BUTTON_SHADOW),
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+        text_color: Some(palette::color(palette::WINDOW_TEXT)),
+    }
+}
+
+/// The Win2000 radio button: a sunken white circle with a black dot. Pass to
+/// `radio(...).style(mde_ui::radio_style)`.
+pub fn radio_style(_theme: &iced::Theme, _status: radio::Status) -> radio::Style {
+    radio::Style {
+        background: Background::Color(palette::color(palette::WINDOW)),
+        dot_color: palette::color(palette::WINDOW_TEXT),
+        border_width: 1.0,
+        border_color: palette::color(palette::BUTTON_SHADOW),
+        text_color: Some(palette::color(palette::WINDOW_TEXT)),
+    }
+}
+
+/// The Win2000 progress bar: a sunken silver trough with a navy fill. iced draws
+/// a solid bar (not the classic segmented blocks), so this is the closest
+/// faithful approximation. Pass to `progress_bar(...).style(mde_ui::progress_style)`.
+pub fn progress_style(_theme: &iced::Theme) -> progress_bar::Style {
+    progress_bar::Style {
+        background: Background::Color(palette::color(palette::BUTTON_LIGHT)),
+        bar: Background::Color(palette::color(palette::HIGHLIGHT)),
+        border: Border {
+            color: palette::color(palette::BUTTON_SHADOW),
+            width: 1.0,
+            radius: 0.0.into(),
+        },
     }
 }
 
