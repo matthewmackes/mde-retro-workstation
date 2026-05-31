@@ -22,6 +22,8 @@ use crate::sway;
 struct Panel {
     windows: Vec<sway::Window>,
     clock: String,
+    /// Quick Launch pins, loaded from ~/.config/mde/menu.json at startup.
+    pinned: Vec<crate::state::PinnedItem>,
 }
 
 #[to_layer_message]
@@ -30,6 +32,7 @@ enum Message {
     Tick,
     Start,
     Focus(i64),
+    Launch(String),
 }
 
 pub fn run(_args: &[String]) -> ExitCode {
@@ -58,7 +61,10 @@ fn launch() -> Result<(), iced_layershell::Error> {
             },
             ..Default::default()
         })
-        .run_with(|| (Panel::default(), Task::done(Message::Tick)))
+        .run_with(|| {
+            let panel = Panel { pinned: crate::state::load().pinned, ..Panel::default() };
+            (panel, Task::done(Message::Tick))
+        })
 }
 
 fn namespace(_state: &Panel) -> String {
@@ -86,6 +92,9 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
         Message::Focus(id) => {
             let _ = sway::focus(id);
         }
+        Message::Launch(cmd) => {
+            let _ = Command::new("sh").arg("-c").arg(&cmd).spawn();
+        }
         _ => {}
     }
     Task::none()
@@ -101,6 +110,18 @@ fn view(state: &Panel) -> Element<'_, Message> {
                 .height(Length::Fill),
         )
         .push(Space::with_width(Length::Fixed(6.0)));
+
+    // Quick Launch: pinned apps (from menu.json), between Start and the windows.
+    if !state.pinned.is_empty() {
+        for item in &state.pinned {
+            bar = bar.push(
+                button(text(truncate(&item.name, 12)).size(metrics::UI_PX))
+                    .on_press(Message::Launch(item.command.clone()))
+                    .height(Length::Fill),
+            );
+        }
+        bar = bar.push(Space::with_width(Length::Fixed(6.0)));
+    }
 
     for w in &state.windows {
         bar = bar.push(
