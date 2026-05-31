@@ -284,9 +284,14 @@ fn view(state: &Panel) -> Element<'_, Message> {
     for w in &state.windows {
         // Left-click focuses (and restores a minimized window); right-click opens
         // the window's system menu (Restore / Minimize / Maximize / Close).
+        let label = Row::new()
+            .spacing(4.0)
+            .align_y(iced::Alignment::Center)
+            .push(crate::icons::icon_any(&[w.app_id.as_str(), "application-x-executable"], 16))
+            .push(text(truncate(&w.title, 20)).size(metrics::UI_PX));
         bar = bar.push(
             mouse_area(
-                button(text(truncate(&w.title, 22)).size(metrics::UI_PX))
+                button(label)
                     .on_press(Message::TaskButton(w.id))
                     .active(w.focused)
                     .width(Length::Fixed(metrics::TASKBAR_BUTTON_MIN as f32))

@@ -50,6 +50,9 @@ struct Menu {
     /// "Show small icons in Start menu" — when false (the Win2000 default) the
     /// root column uses large 32px icons; submenus always use small icons.
     small_icons: bool,
+    /// Names of currently-pinned items, so the right-click menu can offer Pin
+    /// or Unpin appropriately.
+    pinned: Vec<String>,
 }
 
 #[to_layer_message]
@@ -59,6 +62,7 @@ enum Message {
     RightClick(usize, usize),
     CtxOpen,
     CtxPin,
+    CtxUnpin,
     CtxProperties,
     Close,
     Event(Event),
@@ -166,9 +170,17 @@ fn launch() -> Result<(), iced_layershell::Error> {
             ..Default::default()
         })
         .run_with(|| {
-            let small_icons = crate::state::load().start_small_icons;
+            let st = crate::state::load();
+            let pinned = st.pinned.iter().map(|p| p.name.clone()).collect();
             (
-                Menu { root: build_root(), open: Vec::new(), cursor: None, context: None, small_icons },
+                Menu {
+                    root: build_root(),
+                    open: Vec::new(),
+                    cursor: None,
+                    context: None,
+                    small_icons: st.start_small_icons,
+                    pinned,
+                },
                 Task::none(),
             )
         })
@@ -369,6 +381,14 @@ fn node_meta(menu: &Menu, col: usize, idx: usize) -> Option<(String, String)> {
     }
 }
 
+/// Rebuild the root column after a pin change so it shows immediately; reset
+/// navigation since the pinned band (and therefore indices) shifted.
+fn refresh_pins(menu: &mut Menu) {
+    menu.root = build_root();
+    menu.open.clear();
+    menu.cursor = None;
+}
+
 fn command_for(act: &Act) -> Option<String> {
     match act {
         Act::Cmd(c, _) => Some(c.clone()),
@@ -431,9 +451,23 @@ fn update(menu: &mut Menu, message: Message) -> Task<Message> {
                 if let Some((name, command)) = node_meta(menu, c, i) {
                     let mut st = crate::state::load();
                     if !st.pinned.iter().any(|p| p.name == name) {
-                        st.pinned.push(crate::state::PinnedItem { name, command });
+                        st.pinned.push(crate::state::PinnedItem { name: name.clone(), command });
                         let _ = crate::state::save(&st);
+                        menu.pinned.push(name);
+                        refresh_pins(menu);
                     }
+                }
+            }
+            menu.context = None;
+        }
+        Message::CtxUnpin => {
+            if let Some((c, i)) = menu.context {
+                if let Some((name, _)) = node_meta(menu, c, i) {
+                    let mut st = crate::state::load();
+                    st.pinned.retain(|p| p.name != name);
+                    let _ = crate::state::save(&st);
+                    menu.pinned.retain(|n| n != &name);
+                    refresh_pins(menu);
                 }
             }
             menu.context = None;
@@ -847,9 +881,10 @@ fn view(menu: &Menu) -> Element<'_, Message> {
     // anchored bottom-left above the taskbar. Exact cursor-following is a
     // grim-tuning refinement; the commands are wired.
     if let Some((c, i)) = menu.context {
-        if node_meta(menu, c, i).is_some() {
+        if let Some((name, _)) = node_meta(menu, c, i) {
+            let pinned = menu.pinned.contains(&name);
             layers = layers.push(
-                container(context_menu())
+                container(context_menu(pinned))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_x(Horizontal::Left)
@@ -861,21 +896,29 @@ fn view(menu: &Menu) -> Element<'_, Message> {
     layers.into()
 }
 
-/// The launcher right-click menu panel.
-fn context_menu() -> Element<'static, Message> {
+/// The launcher right-click menu panel. `pinned` swaps Pin for Unpin. Sized to
+/// its three rows — a Fill `frame::raised()` base would balloon it full-screen.
+fn context_menu(pinned: bool) -> Element<'static, Message> {
     let item = |label: &'static str, msg: Message| {
         button(text(label).size(metrics::UI_PX))
             .on_press(msg)
-            .width(Length::Fixed(150.0))
+            .width(Length::Fill)
             .height(Length::Fixed(ITEM_H))
             .padding(pad(4.0, 16.0, 0.0, 12.0))
             .style(item_style(false))
     };
+    let (pin_label, pin_msg) = if pinned {
+        ("Unpin from Start menu", Message::CtxUnpin)
+    } else {
+        ("Pin to Start menu", Message::CtxPin)
+    };
     let col = Column::new()
         .push(item("Open", Message::CtxOpen))
-        .push(item("Pin to Start menu", Message::CtxPin))
+        .push(item(pin_label, pin_msg))
         .push(item("Properties", Message::CtxProperties));
-    iced::widget::stack![frame::raised().thickness(2), container(col).padding(2.0)]
+    container(iced::widget::stack![frame::raised().thickness(2), container(col).padding(2.0)])
+        .width(Length::Fixed(168.0))
+        .height(Length::Fixed(3.0 * ITEM_H + 6.0))
         .into()
 }
 
