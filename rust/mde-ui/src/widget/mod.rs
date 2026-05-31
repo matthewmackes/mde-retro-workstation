@@ -6,6 +6,7 @@
 
 pub mod bevel;
 pub mod button;
+pub mod flag;
 pub mod frame;
 pub mod infoband;
 

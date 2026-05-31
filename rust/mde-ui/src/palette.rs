@@ -56,6 +56,14 @@ pub const SETUP_GRADIENT_BOTTOM: Rgb = (0x08, 0x16, 0x40);
 pub const SETUP_PROGRESS: Rgb = (0x16, 0x3a, 0xa8);
 pub const SETUP_SUBTITLE: Rgb = (0x9e, 0xb2, 0xdb);
 
+/// The Start-button "flying windows" flag panes (red/green/blue/yellow). Brand
+/// art, not a GetSysColor value — drawn as quads because the UI font has no
+/// flag glyph (see `widget::flag`).
+pub const LOGO_RED: Rgb = (0xe8, 0x44, 0x32);
+pub const LOGO_GREEN: Rgb = (0x6f, 0xb1, 0x2e);
+pub const LOGO_BLUE: Rgb = (0x2a, 0x7d, 0xe1);
+pub const LOGO_YELLOW: Rgb = (0xf2, 0xc4, 0x1d);
+
 /// Convert a palette [`Rgb`] into an `iced::Color`.
 pub fn color(rgb: Rgb) -> iced::Color {
     iced::Color::from_rgb8(rgb.0, rgb.1, rgb.2)

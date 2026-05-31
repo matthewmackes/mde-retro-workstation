@@ -1,6 +1,6 @@
 //! Taskbar — a wlr-layer-shell bar anchored to the bottom edge.
 //!
-//! A raised Win2000 panel: ⊞ Start button, a window-button taskbar fed by sway
+//! A raised Win2000 panel: flag Start button, a window-button taskbar fed by sway
 //! IPC (the focused window's button shows pressed), a flexible spacer, and a
 //! sunken clock well. Polls sway + the clock once a second.
 
@@ -105,9 +105,15 @@ fn view(state: &Panel) -> Element<'_, Message> {
         .spacing(2.0)
         .height(Length::Fill)
         .push(
-            button(text("\u{2756} Start").size(metrics::UI_PX))
-                .on_press(Message::Start)
-                .height(Length::Fill),
+            button(
+                Row::new()
+                    .spacing(4.0)
+                    .align_y(iced::Alignment::Center)
+                    .push(mde_ui::flag::flag())
+                    .push(text("Start").size(metrics::UI_PX).font(mde_ui::font::UI_BOLD)),
+            )
+            .on_press(Message::Start)
+            .height(Length::Fill),
         )
         .push(Space::with_width(Length::Fixed(6.0)));
 
