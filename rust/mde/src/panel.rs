@@ -24,6 +24,10 @@ struct Panel {
     clock: String,
     /// Quick Launch pins, loaded from ~/.config/mde/menu.json at startup.
     pinned: Vec<crate::state::PinnedItem>,
+    /// The StatusNotifier tray handle (the background watcher) and the latest
+    /// snapshot of its items, refreshed each tick.
+    tray: Option<crate::tray::Tray>,
+    tray_items: Vec<crate::tray::TrayItem>,
 }
 
 #[to_layer_message]
@@ -35,6 +39,7 @@ enum Message {
     TaskbarContext,
     Focus(i64),
     Launch(String),
+    TrayActivate(usize),
 }
 
 pub fn run(_args: &[String]) -> ExitCode {
@@ -64,7 +69,11 @@ fn launch() -> Result<(), iced_layershell::Error> {
             ..Default::default()
         })
         .run_with(|| {
-            let panel = Panel { pinned: crate::state::load().pinned, ..Panel::default() };
+            let panel = Panel {
+                pinned: crate::state::load().pinned,
+                tray: Some(crate::tray::start()),
+                ..Panel::default()
+            };
             (panel, Task::done(Message::Tick))
         })
 }
@@ -89,6 +98,14 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
         Message::Tick => {
             state.windows = sway::windows().unwrap_or_default();
             state.clock = clock_now();
+            if let Some(t) = &state.tray {
+                state.tray_items = t.lock().map(|v| v.clone()).unwrap_or_default();
+            }
+        }
+        Message::TrayActivate(i) => {
+            if let Some(it) = state.tray_items.get(i) {
+                crate::tray::activate(&it.service, &it.path);
+            }
         }
         Message::Start => spawn_self(&["menu"]),
         Message::StartContext => spawn_self(&["popup", "start"]),
@@ -150,6 +167,23 @@ fn view(state: &Panel) -> Element<'_, Message> {
     bar = bar.push(
         mouse_area(Space::new(Length::Fill, Length::Fill)).on_right_press(Message::TaskbarContext),
     );
+
+    // The notification area: StatusNotifier tray icons, then the clock well.
+    if !state.tray_items.is_empty() {
+        let mut tray = Row::new().spacing(2.0).align_y(iced::Alignment::Center);
+        for (i, item) in state.tray_items.iter().enumerate() {
+            tray = tray.push(
+                iced::widget::button(crate::icons::icon_any(&[item.icon_name.as_str()], 16))
+                    .on_press(Message::TrayActivate(i))
+                    .padding(2.0)
+                    .style(|_, _| iced::widget::button::Style {
+                        background: None,
+                        ..Default::default()
+                    }),
+            );
+        }
+        bar = bar.push(container(tray).padding(Padding { top: 0.0, right: 4.0, bottom: 0.0, left: 4.0 }));
+    }
 
     let clock = Stack::new().push(frame::sunken()).push(
         container(text(state.clock.clone()).size(metrics::UI_PX))

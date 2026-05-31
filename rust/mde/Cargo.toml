@@ -21,6 +21,9 @@ serde_json.workspace = true
 anyhow.workspace = true
 ratatui = "0.29"
 crossterm = "0.28"
+# System tray: be the StatusNotifierWatcher + Host so SNI apps (nm-applet, etc.)
+# show their icons in the taskbar. The blocking zbus API runs on its own thread.
+zbus = "4"
 
 [dev-dependencies]
 # Accuracy harness (tests/accuracy.rs): decode grim PNG captures and parse the

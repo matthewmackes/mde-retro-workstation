@@ -25,6 +25,7 @@ mod popup;
 mod state;
 mod sway;
 mod sysinfo;
+mod tray;
 mod system_properties;
 mod tui_setup;
 
