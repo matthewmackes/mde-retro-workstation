@@ -1,0 +1,20 @@
+#!/bin/sh
+# MDE-Retro labwc autostart — launches the Rust shell + session services.
+# (Replaces the sway `exec` lines.)
+
+# The taskbar / Start button / tray / clock.
+mde panel &
+
+# Network tray applet (its icon is rendered natively by the panel; this keeps
+# the NetworkManager agent available).
+nm-applet --indicator &
+
+# Output geometry (resolution/scale/position) — written by Display Properties.
+[ -x "$HOME/.config/mde/display.sh" ] && "$HOME/.config/mde/display.sh" &
+
+# Wallpaper — set by the Display control panel, which writes a swaybg line to
+# ~/.config/mde/wallpaper.sh; run it if present.
+[ -x "$HOME/.config/mde/wallpaper.sh" ] && "$HOME/.config/mde/wallpaper.sh" &
+
+# Screen saver / idle — armed by Display Properties (writes ~/.config/mde/idle.sh).
+[ -x "$HOME/.config/mde/idle.sh" ] && "$HOME/.config/mde/idle.sh" &

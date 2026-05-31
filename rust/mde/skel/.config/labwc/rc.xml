@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!-- MDE-Retro labwc configuration (generated; mirrors the old sway keybinds).
+     Titlebar buttons live here + in the Win2000-MDE Openbox theme. -->
+<labwc_config>
+  <theme>
+    <name>Win2000-MDE</name>
+    <cornerRadius>0</cornerRadius>
+    <!-- System-menu icon on the left; minimize, maximize, close on the right. -->
+    <titlebar>
+      <layout>icon:iconify,max,close</layout>
+    </titlebar>
+    <font place="ActiveWindow">
+      <name>Droid Sans</name>
+      <size>10</size>
+      <weight>bold</weight>
+    </font>
+    <font place="InactiveWindow">
+      <name>Droid Sans</name>
+      <size>10</size>
+      <weight>bold</weight>
+    </font>
+  </theme>
+
+  <focus>
+    <followMouse>no</followMouse>
+    <raiseOnFocus>yes</raiseOnFocus>
+  </focus>
+
+  <keyboard>
+    <!-- Window management (Win2000-style). -->
+    <keybind key="A-F4"><action name="Close"/></keybind>
+    <keybind key="W-Up"><action name="ToggleMaximize"/></keybind>
+    <keybind key="W-m"><action name="Iconify"/></keybind>
+    <keybind key="A-Tab"><action name="NextWindow"/></keybind>
+    <keybind key="A-S-Tab"><action name="PreviousWindow"/></keybind>
+
+    <!-- Shell launchers (the old sway bindings). -->
+    <keybind key="W-d"><action name="Execute"><command>mde menu</command></action></keybind>
+    <keybind key="C-Escape"><action name="Execute"><command>mde menu</command></action></keybind>
+    <keybind key="W-e"><action name="Execute"><command>mde files</command></action></keybind>
+    <keybind key="W-r"><action name="Execute"><command>mde run</command></action></keybind>
+    <keybind key="W-Return"><action name="Execute"><command>foot</command></action></keybind>
+
+    <keybind key="W-S-q"><action name="Close"/></keybind>
+    <keybind key="C-A-Delete"><action name="Execute"><command>mde shutdown</command></action></keybind>
+  </keyboard>
+
+  <!-- The leading <default/> is REQUIRED. labwc treats a <mouse> section as a
+       full replacement: without <default/> every built-in mousebind is dropped,
+       which is what left windows unmovable (no Title drag-to-Move, no Win+drag
+       on the Frame) and the titlebar buttons unresponsive (no Iconify/Maximize/
+       Close click actions). The defaults already give double-click-to-maximize
+       and right-click-titlebar -> client-menu, so we only re-add the desktop
+       (Root) right-click menu on top of them. -->
+  <mouse>
+    <default/>
+    <context name="Root">
+      <mousebind button="Right" action="Press"><action name="ShowMenu"><menu>root-menu</menu></action></mousebind>
+    </context>
+  </mouse>
+</labwc_config>

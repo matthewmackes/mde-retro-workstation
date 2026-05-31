@@ -1,0 +1,64 @@
+# Win2000-MDE — a Windows 2000 Classic titlebar/decoration theme for labwc.
+# Colours match the MDE-Retro palette (navy active caption, silver 3D frame).
+
+# --- frame / border --------------------------------------------------------
+border.width: 1
+padding.width: 4
+padding.height: 3
+window.handle.width: 0
+window.client.padding.width: 0
+
+# --- titlebar buttons ------------------------------------------------------
+# Windows 2000 caption buttons are silver 3D raised squares with a black glyph.
+# labwc 0.9 does NOT support Openbox's "raised bevel solid" button background,
+# so the whole button (face + bevel + glyph) is supplied as PNGs in this dir
+# (iconify/max/max_toggled/close -active/-inactive.png). image.color below is
+# only the fallback tint if those PNGs ever fail to load.
+window.button.width: 18
+window.button.height: 16
+window.button.spacing: 0
+
+# --- active window ---------------------------------------------------------
+window.active.title.bg.color: #0a246a
+window.active.title.bg: flat solid
+window.active.label.text.color: #ffffff
+window.active.label.text.justify: left
+window.active.border.color: #d4d0c8
+window.active.client.color: #d4d0c8
+
+# Titlebar buttons: silver 3D button face with a black glyph (Win2000 look).
+window.active.button.unpressed.bg.color: #d4d0c8
+window.active.button.unpressed.bg: raised bevel solid
+window.active.button.unpressed.image.color: #000000
+window.active.button.hover.bg.color: #d4d0c8
+window.active.button.hover.bg: raised bevel solid
+window.active.button.hover.image.color: #000000
+window.active.button.pressed.bg.color: #d4d0c8
+window.active.button.pressed.bg: sunken bevel solid
+window.active.button.pressed.image.color: #000000
+
+# --- inactive window -------------------------------------------------------
+window.inactive.title.bg.color: #808080
+window.inactive.title.bg: flat solid
+window.inactive.label.text.color: #d4d0c8
+window.inactive.label.text.justify: left
+window.inactive.border.color: #d4d0c8
+window.inactive.client.color: #d4d0c8
+window.inactive.button.unpressed.bg.color: #d4d0c8
+window.inactive.button.unpressed.bg: raised bevel solid
+window.inactive.button.unpressed.image.color: #404040
+
+# --- right-click menus (client + root) -------------------------------------
+menu.border.width: 1
+menu.border.color: #808080
+menu.items.bg.color: #d4d0c8
+menu.items.text.color: #000000
+menu.items.active.bg.color: #0a246a
+menu.items.active.text.color: #ffffff
+menu.title.bg.color: #0a246a
+menu.title.text.color: #ffffff
+
+# --- on-screen display (resize/move indicator) -----------------------------
+osd.bg.color: #d4d0c8
+osd.border.color: #808080
+osd.label.text.color: #000000

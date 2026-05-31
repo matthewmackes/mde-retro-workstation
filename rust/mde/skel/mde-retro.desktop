@@ -1,5 +1,5 @@
 [Desktop Entry]
 Name=MDE-Retro
-Comment=Windows 2000 desktop shell (sway + mde)
-Exec=sway
+Comment=Windows 2000 desktop shell (labwc + mde)
+Exec=labwc
 Type=Application
