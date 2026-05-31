@@ -33,9 +33,14 @@ toml = "0.8"
 
 # ---------------------------------------------------------------------------
 # RPM packaging (cargo-generate-rpm). Build with:
-#   cargo build --release && cargo generate-rpm -p mde
-# The package ships CODE ONLY; `mde install --assets` fetches Chicago95 + Win2k
-# on first run, so no third-party art is redistributed.
+#   cargo build --release
+#   tests/stage-rpm-assets.sh          # stage the bundled theme into target/
+#   cargo generate-rpm -p mde
+# The package BUNDLES the primary Win2000 look (Win2k icons + Chicago95 cursors
+# + sounds, ~7MB) for an offline install, plus the GPL-3 text + a provenance
+# NOTICE. The 76MB Chicago95 icon FALLBACK is NOT bundled (size); `mde install
+# --assets` still fetches it for full coverage. See assets/licenses/NOTICE.md —
+# verify the Win2k KDE-Store theme's terms before public redistribution.
 # ---------------------------------------------------------------------------
 [package.metadata.generate-rpm]
 summary = "Windows 2000 desktop shell for Sway (MDE-Retro)"
@@ -55,17 +60,24 @@ assets = [
     { source = "skel/.config/sway/config", dest = "/usr/share/mde/skel/.config/sway/config", mode = "0644" },
     # The Wayland session entry the greeter lists.
     { source = "skel/mde-retro.desktop", dest = "/usr/share/wayland-sessions/mde-retro.desktop", mode = "0644" },
+    # --- Bundled third-party assets (staged into target/rpm-assets) ----------
+    { source = "target/rpm-assets/icons/Win2k/**/*", dest = "/usr/share/icons/Win2k/", mode = "0644" },
+    { source = "target/rpm-assets/icons/Chicago95_Standard_Cursors/**/*", dest = "/usr/share/icons/Chicago95_Standard_Cursors/", mode = "0644" },
+    { source = "target/rpm-assets/sounds/Chicago95/**/*", dest = "/usr/share/sounds/Chicago95/", mode = "0644" },
+    # GPL-3 text + provenance NOTICE for the bundled art (license compliance).
+    { source = "assets/licenses/GPL-3.0.txt", dest = "/usr/share/licenses/mde/GPL-3.0.txt", mode = "0644", doc = true },
+    { source = "assets/licenses/NOTICE.md", dest = "/usr/share/licenses/mde/NOTICE.md", mode = "0644", doc = true },
 ]
 # Runtime packages the shell actually drives (the CORE set the installer needs +
 # the helpers the shell shells out to). Visual assets are fetched, not required.
 requires = { sway = "*", swaybg = "*", foot = "*", grim = "*", wmenu = "*", "xdg-utils" = "*", brightnessctl = "*", NetworkManager = "*", greetd = "*", tuigreet = "*", pipewire = "*", wireplumber = "*", polkit = "*", "google-droid-sans-fonts" = "*", "xkeyboard-config" = "*" }
 post_install_script = """
-for c in panel menu files control-panel run setup install logoff shutdown; do
+for c in panel menu popup files control-panel system-properties run properties setup install logoff shutdown; do
     ln -sf /usr/bin/mde /usr/bin/mde-$c
 done
 """
 post_uninstall_script = """
-for c in panel menu files control-panel run setup install logoff shutdown; do
+for c in panel menu popup files control-panel system-properties run properties setup install logoff shutdown; do
     rm -f /usr/bin/mde-$c
 done
 """
