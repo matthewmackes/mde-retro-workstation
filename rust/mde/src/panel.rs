@@ -8,8 +8,11 @@ use std::process::{Child, Command, ExitCode};
 use std::time::Duration;
 
 use iced::mouse::ScrollDelta;
-use iced::widget::{container, mouse_area, text, Row, Space, Stack};
+use iced::widget::{container, mouse_area, svg, text, Row, Space, Stack};
 use iced::{Element, Length, Padding, Task};
+
+/// The Start-button icon (carbon "layout-grid"), recoloured to the UI text colour.
+const START_ICON: &[u8] = include_bytes!("start_icon.svg");
 use iced_layershell::build_pattern::{application, MainSettings};
 use iced_layershell::reexport::Anchor;
 use iced_layershell::settings::LayerShellSettings;
@@ -246,7 +249,14 @@ fn view(state: &Panel) -> Element<'_, Message> {
                     Row::new()
                         .spacing(4.0)
                         .align_y(iced::Alignment::Center)
-                        .push(mde_ui::flag::flag())
+                        .push(
+                            svg(svg::Handle::from_memory(START_ICON))
+                                .width(Length::Fixed(16.0))
+                                .height(Length::Fixed(16.0))
+                                .style(|_t, _s| svg::Style {
+                                    color: Some(palette::color(palette::WINDOW_TEXT)),
+                                }),
+                        )
                         .push(text("Start").size(metrics::UI_PX).font(mde_ui::font::UI_BOLD)),
                 )
                 .on_press(Message::Start)
