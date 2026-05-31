@@ -45,12 +45,18 @@ struct Menu {
     /// Keyboard selection within the active (deepest-open) column. `None` until
     /// the first arrow key, matching Win2000 (no highlight until you navigate).
     cursor: Option<usize>,
+    /// The (column, index) of the right-clicked item showing a context menu.
+    context: Option<(usize, usize)>,
 }
 
 #[to_layer_message]
 #[derive(Debug, Clone)]
 enum Message {
     Click(usize, usize), // (column, index)
+    RightClick(usize, usize),
+    CtxOpen,
+    CtxPin,
+    CtxProperties,
     Close,
     Event(Event),
 }
@@ -131,7 +137,9 @@ fn launch() -> Result<(), iced_layershell::Error> {
             },
             ..Default::default()
         })
-        .run_with(|| (Menu { root: build_root(), open: Vec::new(), cursor: None }, Task::none()))
+        .run_with(|| {
+            (Menu { root: build_root(), open: Vec::new(), cursor: None, context: None }, Task::none())
+        })
 }
 
 fn namespace(_: &Menu) -> String {
@@ -314,9 +322,35 @@ fn open_cursor_sub(menu: &mut Menu) {
     }
 }
 
+/// (display name, launch command) for a leaf, if it has a runnable command —
+/// used by the right-click context menu's Pin / Properties.
+fn node_meta(menu: &Menu, col: usize, idx: usize) -> Option<(String, String)> {
+    let cols = columns(menu);
+    match cols.get(col)?.get(idx)? {
+        Node::Leaf(label, act) => command_for(act).map(|c| (label.clone(), c)),
+        _ => None,
+    }
+}
+
+fn command_for(act: &Act) -> Option<String> {
+    match act {
+        Act::Cmd(c, _) => Some(c.clone()),
+        Act::Mde(s) => Some(format!("mde {s}")),
+        Act::Tool(i) => fedora::TOOLS.get(*i).map(|t| t.command.to_string()),
+        _ => None,
+    }
+}
+
+fn mde_self_args(sub: &str, args: &[String]) {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = Command::new(exe).arg(sub).args(args).spawn();
+    }
+}
+
 fn update(menu: &mut Menu, message: Message) -> Task<Message> {
     match message {
         Message::Click(col, idx) => {
+            menu.context = None;
             let node = columns(menu).get(col).and_then(|c| c.get(idx));
             match node {
                 Some(Node::Sub(_, _)) => {
@@ -334,7 +368,47 @@ fn update(menu: &mut Menu, message: Message) -> Task<Message> {
                 _ => {}
             }
         }
-        Message::Close => exit(0),
+        // A click on the backdrop closes the context menu first, else the menu.
+        Message::Close => {
+            if menu.context.take().is_none() {
+                exit(0);
+            }
+        }
+        Message::RightClick(col, idx) => menu.context = Some((col, idx)),
+        Message::CtxOpen => {
+            let act = menu.context.and_then(|(c, i)| {
+                let cols = columns(menu);
+                match cols.get(c).and_then(|col| col.get(i)) {
+                    Some(Node::Leaf(_, a)) => Some(a.clone()),
+                    _ => None,
+                }
+            });
+            if let Some(a) = act {
+                run_act(&a);
+                exit(0);
+            }
+            menu.context = None;
+        }
+        Message::CtxPin => {
+            if let Some((c, i)) = menu.context {
+                if let Some((name, command)) = node_meta(menu, c, i) {
+                    let mut st = crate::state::load();
+                    if !st.pinned.iter().any(|p| p.name == name) {
+                        st.pinned.push(crate::state::PinnedItem { name, command });
+                        let _ = crate::state::save(&st);
+                    }
+                }
+            }
+            menu.context = None;
+        }
+        Message::CtxProperties => {
+            if let Some((c, i)) = menu.context {
+                if let Some((name, command)) = node_meta(menu, c, i) {
+                    mde_self_args("properties", &[name, command]);
+                }
+            }
+            exit(0);
+        }
         Message::Event(Event::Keyboard(keyboard::Event::KeyPressed {
             key: keyboard::Key::Named(named),
             ..
@@ -499,13 +573,16 @@ fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> El
             .padding(pad(3.0, 6.0, 3.0, 6.0))
             .into()
         }
-        Node::Leaf(label, _) => button(text(label).size(metrics::UI_PX))
-            .on_press(Message::Click(col, idx))
-            .width(Length::Fill)
-            .height(Length::Fixed(ITEM_H))
-            .padding(pad(4.0, 16.0, 0.0, 12.0))
-            .style(item_style(false))
-            .into(),
+        Node::Leaf(label, _) => mouse_area(
+            button(text(label).size(metrics::UI_PX))
+                .on_press(Message::Click(col, idx))
+                .width(Length::Fill)
+                .height(Length::Fixed(ITEM_H))
+                .padding(pad(4.0, 16.0, 0.0, 12.0))
+                .style(item_style(selected)),
+        )
+        .on_right_press(Message::RightClick(col, idx))
+        .into(),
         Node::Sub(label, _) => button(
             Row::new()
                 .push(text(label).size(metrics::UI_PX).width(Length::Fill))
@@ -607,7 +684,41 @@ fn view(menu: &Menu) -> Element<'_, Message> {
     // Behind everything: a full-screen click catcher that closes the menu.
     let overlay = mouse_area(Space::new(Length::Fill, Length::Fill)).on_press(Message::Close);
 
-    iced::widget::stack![overlay, menu_panel].into()
+    let mut layers = iced::widget::stack![overlay, menu_panel];
+    // A right-clicked launcher shows a context menu (Open / Pin / Properties)
+    // anchored bottom-left above the taskbar. Exact cursor-following is a
+    // grim-tuning refinement; the commands are wired.
+    if let Some((c, i)) = menu.context {
+        if node_meta(menu, c, i).is_some() {
+            layers = layers.push(
+                container(context_menu())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(Horizontal::Left)
+                    .align_y(Vertical::Bottom)
+                    .padding(pad(0.0, 0.0, metrics::TASKBAR_HEIGHT as f32 + 16.0, 226.0)),
+            );
+        }
+    }
+    layers.into()
+}
+
+/// The launcher right-click menu panel.
+fn context_menu() -> Element<'static, Message> {
+    let item = |label: &'static str, msg: Message| {
+        button(text(label).size(metrics::UI_PX))
+            .on_press(msg)
+            .width(Length::Fixed(150.0))
+            .height(Length::Fixed(ITEM_H))
+            .padding(pad(4.0, 16.0, 0.0, 12.0))
+            .style(item_style(false))
+    };
+    let col = Column::new()
+        .push(item("Open", Message::CtxOpen))
+        .push(item("Pin to Start menu", Message::CtxPin))
+        .push(item("Properties", Message::CtxProperties));
+    iced::widget::stack![frame::raised().thickness(2), container(col).padding(2.0)]
+        .into()
 }
 
 #[cfg(test)]
