@@ -515,7 +515,9 @@ fn tree_label(path: &Path) -> String {
 /// Recursive tree rows for `path` at `depth`; expands children when in the set.
 fn tree_rows(state: &Files, path: &Path, label: String, depth: u16) -> Vec<Element<'static, Message>> {
     let expanded = state.tree_expanded.contains(path);
-    let marker = if expanded { "\u{25bc}" } else { "\u{25b6}" }; // ▼ / ▶
+    // "+"/"-" — the Win2000 tree control, and always-rendering (Droid Sans has
+    // no ▶/▼ glyphs, which would show as tofu boxes).
+    let marker = if expanded { "-" } else { "+" };
     let row = Row::new()
         .push(Space::with_width(Length::Fixed(depth as f32 * 12.0)))
         .push(

@@ -89,16 +89,21 @@ fn pad(t: f32, r: f32, b: f32, l: f32) -> Padding {
 // --- view ------------------------------------------------------------------
 
 fn tab_strip(current: usize) -> Element<'static, Message> {
-    let mut row = Row::new().spacing(2.0).padding(pad(2.0, 4.0, 0.0, 4.0));
-    for (i, name) in TABS.iter().enumerate() {
-        row = row.push(
-            button(text(*name).size(metrics::UI_PX))
-                .active(i == current)
-                .on_press(Message::SelectTab(i))
-                .padding(pad(2.0, 6.0, 2.0, 6.0)),
-        );
-    }
-    row.into()
+    // Two rows (the XP/Win2000 layout, per SPEC-system.md) so all 7 tabs fit
+    // without overflowing the dialog width.
+    let make_row = |range: std::ops::Range<usize>| {
+        let mut row = Row::new().spacing(2.0).padding(pad(2.0, 4.0, 0.0, 4.0));
+        for i in range {
+            row = row.push(
+                button(text(TABS[i]).size(metrics::UI_PX))
+                    .active(i == current)
+                    .on_press(Message::SelectTab(i))
+                    .padding(pad(2.0, 6.0, 2.0, 6.0)),
+            );
+        }
+        row
+    };
+    Column::new().push(make_row(0..4)).push(make_row(4..TABS.len())).into()
 }
 
 /// A "Label: value" line.
@@ -159,7 +164,8 @@ fn hardware_tab(state: &SysProps) -> Element<'static, Message> {
     let mut tree = Column::new().spacing(0.0);
     for (i, cat) in state.devices.iter().enumerate() {
         let open = state.expanded.contains(&i);
-        let marker = if open { "▼ " } else { "▶ " };
+        // "+"/"-" (the Win2000 tree control) — Droid Sans lacks the ▶/▼ glyphs.
+        let marker = if open { "- " } else { "+ " };
         tree = tree.push(
             iced::widget::button(
                 text(format!("{marker}{}", cat.name)).size(metrics::UI_PX).font(mde_ui::font::UI_BOLD),

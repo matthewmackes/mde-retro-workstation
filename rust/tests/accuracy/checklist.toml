@@ -15,7 +15,8 @@
 
 [capture.desktop]
 file = "desktop.png"
-# Full-output grab of the running desktop (sway background + taskbar strip).
+# Bare desktop: just the sway background (COLOR_BACKGROUND). The taskbar is
+# verified separately in [capture.panel] — a bare desktop has no taskbar.
 
 [[capture.desktop.point]]
 label = "desktop background (COLOR_BACKGROUND)"
@@ -23,20 +24,6 @@ x = 80
 y = 80
 hex = "3a6ea5"
 tol = 8
-
-[[capture.desktop.point]]
-label = "taskbar face, silver (COLOR_3DFACE)"
-x = -200
-y = -6
-hex = "d4d0c8"
-tol = 6
-
-[[capture.desktop.point]]
-label = "taskbar raised-bevel top highlight (COLOR_3DHIGHLIGHT)"
-x = 4
-y = -28
-hex = "ffffff"
-tol = 12
 
 [capture.panel]
 file = "panel.png"
@@ -76,16 +63,19 @@ tol = 12
 file = "control-panel.png"
 # `mde control-panel` — blue info sidebar (left) + white tool grid (right).
 
+# Absolute (not from-edge) so they hold whether sway floats the window at its
+# natural size or maximizes it: the 190px info sidebar and the white grid both
+# start near the top-left, well inside the frame.
 [[capture.control-panel.point]]
 label = "info sidebar, Win2000 explorer blue"
-x = 12
-y = -12
+x = 40
+y = 120
 hex = "1d5ca8"
 tol = 10
 
 [[capture.control-panel.point]]
 label = "tool grid background, white (COLOR_WINDOW)"
-x = -12
-y = -12
+x = 400
+y = 120
 hex = "ffffff"
 tol = 10
