@@ -529,8 +529,24 @@ fn item_list<'a>(nodes: &'a [Node], col: usize, open: Option<usize>) -> Column<'
 }
 
 fn banner<'a>(height: f32) -> Element<'a, Message> {
-    // Navy strip (rotated "MDE-Retro" text is a later refinement).
-    container(Space::new(Length::Fixed(24.0), Length::Fixed(height)))
+    // The navy side banner with the product name down it. (Win2000 rotates the
+    // text 90°; iced has no easy text rotation, so the letters stack vertically,
+    // bottom-aligned, in white bold — the same reading direction.)
+    let mut col = Column::new()
+        .align_x(Horizontal::Center)
+        .width(Length::Fixed(24.0))
+        .height(Length::Fixed(height))
+        .push(Space::new(Length::Fill, Length::Fill));
+    for ch in "MDE-Retro".chars() {
+        col = col.push(
+            text(ch.to_string())
+                .size(metrics::UI_PX)
+                .font(mde_ui::font::UI_BOLD)
+                .color(palette::color(palette::TITLE_TEXT)),
+        );
+    }
+    col = col.push(Space::new(Length::Fill, Length::Fixed(10.0)));
+    container(col)
         .style(|_| container::Style {
             background: Some(Background::Color(palette::color(palette::ACTIVE_TITLE))),
             ..container::Style::default()
