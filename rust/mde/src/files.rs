@@ -36,7 +36,12 @@ struct Files {
     error: Option<String>,
     /// Expanded directories in the left tree pane.
     tree_expanded: HashSet<PathBuf>,
+    /// Which menubar menu is open (index into MENUS), if any.
+    open_menu: Option<usize>,
 }
+
+/// The menubar titles (indices used by `open_menu` / ToggleMenu).
+const MENUS: [&str; 6] = ["File", "Edit", "View", "Favorites", "Tools", "Help"];
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -50,6 +55,11 @@ enum Message {
     GoAddress,
     TreeToggle(PathBuf),
     TreeNav(PathBuf),
+    ToggleMenu(usize),
+    CloseMenu,
+    NewFolder,
+    CloseWindow,
+    About,
     Noop,
 }
 
@@ -86,6 +96,7 @@ fn launch(start: PathBuf) -> iced::Result {
                 last_click: None,
                 error: None,
                 tree_expanded: home().into_iter().collect(),
+                open_menu: None,
             };
             f.load();
             (f, Task::none())
@@ -216,6 +227,29 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
                 state.error = Some(format!("Cannot find '{}'.", state.address));
             }
         }
+        Message::ToggleMenu(i) => {
+            state.open_menu = if state.open_menu == Some(i) { None } else { Some(i) };
+        }
+        Message::CloseMenu => state.open_menu = None,
+        Message::NewFolder => {
+            state.open_menu = None;
+            // Create "New Folder" (then " (2)", " (3)"… on conflict), like the shell.
+            let mut target = state.cwd.join("New Folder");
+            let mut n = 2;
+            while target.exists() {
+                target = state.cwd.join(format!("New Folder ({n})"));
+                n += 1;
+            }
+            match std::fs::create_dir(&target) {
+                Ok(()) => state.load(),
+                Err(e) => state.error = Some(format!("Could not create folder: {e}")),
+            }
+        }
+        Message::CloseWindow => std::process::exit(0),
+        Message::About => {
+            state.open_menu = None;
+            state.error = Some("MDE-Retro file manager".to_string());
+        }
         Message::TreeToggle(p) => {
             if !state.tree_expanded.remove(&p) {
                 state.tree_expanded.insert(p);
@@ -280,14 +314,14 @@ fn kind(e: &Entry) -> String {
     }
 }
 
-fn menubar<'a>() -> Element<'a, Message> {
+fn menubar(state: &Files) -> Element<'_, Message> {
     let mut bar = Row::new().spacing(0.0);
-    for label in ["File", "Edit", "View", "Favorites", "Tools", "Help"] {
+    for (i, label) in MENUS.iter().enumerate() {
         bar = bar.push(
-            button(text(label).size(metrics::UI_PX))
-                .on_press(Message::Noop)
+            button(text(*label).size(metrics::UI_PX))
+                .on_press(Message::ToggleMenu(i))
                 .padding(pad(2.0, 8.0, 2.0, 8.0))
-                .style(flat),
+                .style(row_style(state.open_menu == Some(i))),
         );
     }
     container(bar)
@@ -297,6 +331,50 @@ fn menubar<'a>() -> Element<'a, Message> {
             ..container::Style::default()
         })
         .into()
+}
+
+/// The commands in menubar menu `i`: (label, message, enabled). Disabled items
+/// (not yet wired) render grayed, the Win2000 way, rather than being absent.
+fn menu_items(i: usize) -> Vec<(&'static str, Message, bool)> {
+    match i {
+        0 => vec![("New Folder", Message::NewFolder, true), ("Close", Message::CloseWindow, true)],
+        1 => vec![
+            ("Cut", Message::Noop, false),
+            ("Copy", Message::Noop, false),
+            ("Paste", Message::Noop, false),
+        ],
+        2 => vec![("Refresh", Message::Refresh, true)],
+        3 => vec![("Add to Favorites", Message::Noop, false)],
+        4 => vec![("Folder Options...", Message::Noop, false)],
+        5 => vec![("About MDE-Retro", Message::About, true)],
+        _ => vec![],
+    }
+}
+
+/// Estimated x-offset of menubar item `i` (label width + padding). Exact pixel
+/// alignment is a grim-tuning refinement; this places the dropdown under its title.
+fn menu_x(i: usize) -> f32 {
+    MENUS[..i].iter().map(|l| l.len() as f32 * 6.0 + 16.0).sum()
+}
+
+/// The dropdown panel for menu `i`: a raised frame over the command list.
+fn dropdown(i: usize) -> Element<'static, Message> {
+    let mut col = Column::new().spacing(0.0);
+    for (label, msg, enabled) in menu_items(i) {
+        let color = if enabled {
+            palette::color(palette::MENU_TEXT)
+        } else {
+            palette::color(palette::GRAY_TEXT)
+        };
+        col = col.push(
+            button(text(label).size(metrics::UI_PX).color(color))
+                .on_press(if enabled { msg } else { Message::Noop })
+                .width(Length::Fill)
+                .padding(pad(2.0, 16.0, 2.0, 8.0))
+                .style(flat),
+        );
+    }
+    iced::widget::stack![frame::raised(), container(col).padding(2.0)].into()
 }
 
 /// A toolbar button: raised 3D chrome (Win2000 hot-track / classic), pressed on
@@ -492,18 +570,35 @@ fn view(state: &Files) -> Element<'_, Message> {
         .push(container(list(state)).width(Length::Fill).height(Length::Fill).padding(2.0));
 
     let content = Column::new()
-        .push(menubar())
+        .push(menubar(state))
         .push(toolbar(state))
         .push(address_bar(state))
         .push(container(body).width(Length::Fill).height(Length::Fill))
         .push(status_bar(state));
 
-    container(content)
+    let base = container(content)
         .width(Length::Fill)
         .height(Length::Fill)
         .style(|_| container::Style {
             background: Some(Background::Color(palette::color(palette::MENU))),
             ..container::Style::default()
-        })
-        .into()
+        });
+
+    // An open menubar menu overlays a dropdown (positioned under its title) plus
+    // a transparent full-window catcher so a click anywhere else closes it.
+    match state.open_menu {
+        Some(i) => {
+            let catcher = iced::widget::mouse_area(Space::new(Length::Fill, Length::Fill))
+                .on_press(Message::CloseMenu);
+            let positioned = Column::new()
+                .push(Space::with_height(Length::Fixed(20.0)))
+                .push(
+                    Row::new()
+                        .push(Space::with_width(Length::Fixed(menu_x(i))))
+                        .push(container(dropdown(i)).width(Length::Fixed(170.0))),
+                );
+            iced::widget::stack![base, catcher, positioned].into()
+        }
+        None => base.into(),
+    }
 }
