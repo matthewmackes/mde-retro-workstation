@@ -1,0 +1,28 @@
+/* MDE-Retro GTK overrides.
+ *
+ * wlroots compositors (labwc/sway) do not clip the large client-side
+ * drop-shadow that GTK3 reserves around popup menus and CSD windows, so every
+ * menu renders inside a big empty box and looks "very long". Removing the
+ * box-shadow and the margin GTK keeps for it collapses menus back to their
+ * content size (flat Win2000 menus). */
+
+menu,
+.menu,
+.context-menu,
+popover,
+popover.background {
+    box-shadow: none;
+    margin: 0;
+}
+
+decoration,
+.csd decoration,
+.window-frame {
+    box-shadow: none;
+    margin: 0;
+}
+
+tooltip {
+    box-shadow: none;
+    margin: 0;
+}
