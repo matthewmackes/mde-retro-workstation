@@ -43,6 +43,21 @@
 
     <keybind key="W-S-q"><action name="Close"/></keybind>
     <keybind key="C-A-Delete"><action name="Execute"><command>mde shutdown</command></action></keybind>
+
+    <!-- Media / volume / brightness keys (ported from the old sway config).
+         Volume + mute via wpctl (PipeWire), media transport via playerctl,
+         backlight via logind SetBrightness (no root). -->
+    <keybind key="XF86AudioRaiseVolume"><action name="Execute"><command>wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+</command></action></keybind>
+    <keybind key="XF86AudioLowerVolume"><action name="Execute"><command>wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-</command></action></keybind>
+    <keybind key="XF86AudioMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle</command></action></keybind>
+    <keybind key="XF86AudioMicMute"><action name="Execute"><command>wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle</command></action></keybind>
+    <keybind key="XF86MonBrightnessUp"><action name="Execute"><command>$HOME/.config/labwc/scripts/brightness.sh up</command></action></keybind>
+    <keybind key="XF86MonBrightnessDown"><action name="Execute"><command>$HOME/.config/labwc/scripts/brightness.sh down</command></action></keybind>
+    <keybind key="XF86AudioPlay"><action name="Execute"><command>playerctl play-pause</command></action></keybind>
+    <keybind key="XF86AudioPause"><action name="Execute"><command>playerctl play-pause</command></action></keybind>
+    <keybind key="XF86AudioStop"><action name="Execute"><command>playerctl stop</command></action></keybind>
+    <keybind key="XF86AudioNext"><action name="Execute"><command>playerctl next</command></action></keybind>
+    <keybind key="XF86AudioPrev"><action name="Execute"><command>playerctl previous</command></action></keybind>
   </keyboard>
 
   <!-- The leading <default/> is REQUIRED. labwc treats a <mouse> section as a
