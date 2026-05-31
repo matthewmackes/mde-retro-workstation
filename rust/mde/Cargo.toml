@@ -73,6 +73,9 @@ assets = [
     { source = "target/rpm-assets/icons/Haiku/**/*", dest = "/usr/share/icons/Haiku/", mode = "0644" },
     { source = "assets/licenses/haiku-icons-MIT.txt", dest = "/usr/share/licenses/mde/haiku-icons-MIT.txt", mode = "0644", doc = true },
     { source = "assets/licenses/IBMPlexSans-OFL.txt", dest = "/usr/share/licenses/mde/IBMPlexSans-OFL.txt", mode = "0644", doc = true },
+    # IBM Plex Sans (BeOS-theme UI font) for GTK/fontconfig apps, not just the shell.
+    { source = "../mde-ui/fonts/IBMPlexSans-Regular.ttf", dest = "/usr/share/fonts/mde-ibm-plex-sans/IBMPlexSans-Regular.ttf", mode = "0644" },
+    { source = "../mde-ui/fonts/IBMPlexSans-Bold.ttf", dest = "/usr/share/fonts/mde-ibm-plex-sans/IBMPlexSans-Bold.ttf", mode = "0644" },
     { source = "target/rpm-assets/icons/Chicago95_Standard_Cursors/**/*", dest = "/usr/share/icons/Chicago95_Standard_Cursors/", mode = "0644" },
     { source = "target/rpm-assets/sounds/Chicago95/**/*", dest = "/usr/share/sounds/Chicago95/", mode = "0644" },
     # GPL-3 text + provenance NOTICE for the bundled art (license compliance).
@@ -93,6 +96,7 @@ post_install_script = """
 for c in panel menu popup files control-panel system-properties run properties setup install logoff shutdown; do
     ln -sf /usr/bin/mde /usr/bin/mde-$c
 done
+fc-cache -f /usr/share/fonts/mde-ibm-plex-sans >/dev/null 2>&1 || true
 """
 post_uninstall_script = """
 for c in panel menu popup files control-panel system-properties run properties setup install logoff shutdown; do

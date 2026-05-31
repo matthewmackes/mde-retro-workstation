@@ -753,14 +753,24 @@ fn screensaver_tab(state: &Display) -> Element<'_, Message> {
         .into()
 }
 
-/// Persist the icon set, point GTK at the matching theme, and restart the shell
-/// so every surface (taskbar + GTK apps) adopts the new icons.
+/// Persist the icon set and apply the whole paired theme — GTK icon theme + UI
+/// font, the labwc title colour — then restart the shell so every surface
+/// (taskbar + GTK apps) adopts it.
 fn apply_icon_set(set: IconSet) {
+    let beos = set == IconSet::Haiku;
     let mut st = crate::state::load();
     st.icon_set = set.key().to_string();
     let _ = crate::state::save(&st);
-    set_gtk_icon_theme(set.theme());
-    set_labwc_title(set == IconSet::Haiku);
+    gtk_settings("gtk-icon-theme-name", Some(set.theme()));
+    // Desktop-wide BeOS font: make sure the embedded IBM Plex Sans is on disk for
+    // GTK/fontconfig, then point GTK at it (Windows 2000 reverts to the default).
+    if beos {
+        ensure_plex_installed();
+        gtk_settings("gtk-font-name", Some("IBM Plex Sans 10"));
+    } else {
+        gtk_settings("gtk-font-name", None);
+    }
+    set_labwc_title(beos);
     // Detached so it outlives the `pkill`: kill every mde surface (incl. this
     // Display window) and relaunch the taskbar with the new set indexed.
     if let Ok(exe) = std::env::current_exe() {
@@ -797,28 +807,63 @@ fn set_labwc_title(beos: bool) {
     }
 }
 
-/// Rewrite (or insert) `gtk-icon-theme-name` in the GTK 3 + GTK 4 settings.ini
-/// so GTK apps use the chosen icon theme.
-fn set_gtk_icon_theme(theme: &str) {
+/// Set (`Some`) or remove (`None`) a key in the GTK 3 + GTK 4 settings.ini,
+/// so GTK apps follow the shell's icon theme and font.
+fn gtk_settings(key: &str, value: Option<&str>) {
     let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else { return };
-    let line = format!("gtk-icon-theme-name = {theme}");
     for ver in ["gtk-3.0", "gtk-4.0"] {
         let path = home.join(".config").join(ver).join("settings.ini");
-        let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "[Settings]\n".to_string());
-        if !text.contains("[Settings]") {
-            text = format!("[Settings]\n{text}");
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut lines: Vec<String> = Vec::new();
+        let mut has_header = false;
+        for line in existing.lines() {
+            let t = line.trim_start();
+            if t.starts_with("[Settings]") {
+                has_header = true;
+            }
+            // Drop any existing line for this exact key (key followed by '=').
+            if t.starts_with(key) && t[key.len()..].trim_start().starts_with('=') {
+                continue;
+            }
+            lines.push(line.to_string());
         }
-        if let Some(start) = text.find("gtk-icon-theme-name") {
-            let end = text[start..].find('\n').map(|n| start + n).unwrap_or(text.len());
-            text.replace_range(start..end, &line);
-        } else if let Some(idx) = text.find("[Settings]") {
-            let nl = text[idx..].find('\n').map(|n| idx + n + 1).unwrap_or(text.len());
-            text.insert_str(nl, &format!("{line}\n"));
+        if !has_header {
+            lines.insert(0, "[Settings]".to_string());
+        }
+        if let Some(v) = value {
+            let pos = lines
+                .iter()
+                .position(|l| l.trim_start().starts_with("[Settings]"))
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            lines.insert(pos, format!("{key} = {v}"));
         }
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let _ = std::fs::write(&path, text);
+        let _ = std::fs::write(&path, lines.join("\n") + "\n");
+    }
+}
+
+/// Write the embedded IBM Plex Sans faces to `~/.local/share/fonts` (if absent)
+/// so GTK/fontconfig apps can resolve "IBM Plex Sans", then refresh the cache.
+fn ensure_plex_installed() {
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else { return };
+    let dir = home.join(".local/share/fonts");
+    let _ = std::fs::create_dir_all(&dir);
+    let faces: [(&str, &[u8]); 2] = [
+        ("IBMPlexSans-Regular.ttf", mde_ui::font::PLEX_REGULAR_BYTES),
+        ("IBMPlexSans-Bold.ttf", mde_ui::font::PLEX_BOLD_BYTES),
+    ];
+    let mut wrote = false;
+    for (name, bytes) in faces {
+        let p = dir.join(name);
+        if !p.exists() && std::fs::write(&p, bytes).is_ok() {
+            wrote = true;
+        }
+    }
+    if wrote {
+        let _ = std::process::Command::new("fc-cache").arg("-f").arg(&dir).spawn();
     }
 }
 
