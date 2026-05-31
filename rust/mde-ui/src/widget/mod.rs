@@ -10,11 +10,13 @@ pub mod flag;
 pub mod frame;
 pub mod groupbox;
 pub mod infoband;
+pub mod tabs;
 
 pub use bevel::Bevel;
 pub use button::{button, Button};
 pub use frame::BevelFrame;
 pub use groupbox::group_box;
+pub use tabs::tab_strip;
 
 use iced::advanced::renderer;
 use iced::widget::{checkbox, container, pick_list, progress_bar, radio, scrollable, text_input};

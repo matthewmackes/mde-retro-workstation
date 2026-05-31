@@ -28,3 +28,15 @@ pub const UI_BOLD: Font = Font {
     weight: Weight::Bold,
     ..Font::DEFAULT
 };
+
+/// The Nerd Font family used for notification-area glyph icons (volume,
+/// network, battery, and SNI tray items). Hack Nerd Font ships the Font Awesome
+/// + Material Design Icon glyph ranges; it's loaded from the system at startup
+/// (see `panel::nerd_font_bytes`) and referenced here by family name.
+pub const NERD_FAMILY: &str = "Hack Nerd Font";
+
+/// The Nerd Font as an iced [`Font`].
+pub const NERD: Font = Font {
+    family: Family::Name(NERD_FAMILY),
+    ..Font::DEFAULT
+};
