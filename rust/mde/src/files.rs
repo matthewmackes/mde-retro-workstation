@@ -592,6 +592,9 @@ fn menu_x(i: usize) -> f32 {
 /// A raised dropdown panel over a list of (label, message, enabled) commands —
 /// shared by the menubar dropdowns and the row context menu.
 fn command_menu(items: Vec<(&'static str, Message, bool)>) -> Element<'static, Message> {
+    // Bound the panel height to its content. Without this the `frame::raised()`
+    // base (Fill height) stretches the dropdown down the whole screen.
+    let h: f32 = items.iter().map(|(l, _, _)| if l.is_empty() { 9.0 } else { 20.0 }).sum::<f32>() + 4.0;
     let mut col = Column::new().spacing(0.0);
     for (label, msg, enabled) in items {
         if label.is_empty() {
@@ -612,7 +615,9 @@ fn command_menu(items: Vec<(&'static str, Message, bool)>) -> Element<'static, M
                 .style(flat),
         );
     }
-    iced::widget::stack![frame::raised(), container(col).padding(2.0)].into()
+    container(iced::widget::stack![frame::raised(), container(col).padding(2.0)])
+        .height(Length::Fixed(h))
+        .into()
 }
 
 /// The dropdown panel for menubar menu `i`.
