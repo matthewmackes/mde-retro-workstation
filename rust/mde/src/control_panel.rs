@@ -42,7 +42,6 @@ pub fn run(args: &[String]) -> ExitCode {
 #[derive(Default)]
 struct ControlPanel {
     selected: Option<usize>,
-    last_click: Option<(usize, std::time::Instant)>,
     /// Installed-state per tool, parallel to `fedora::TOOLS`. Computed once at
     /// startup — `is_installed` spawns subprocesses (`command -v` / `rpm -q`),
     /// so calling it from the view would fire ~80 of them on every redraw.
@@ -91,28 +90,18 @@ fn gui() -> iced::Result {
 fn update(state: &mut ControlPanel, message: Message) -> Task<Message> {
     match message {
         Message::Activate(i) => {
-            // Single-click selects; double-click (<400ms) opens — classic shell.
-            let now = std::time::Instant::now();
-            let is_double = state
-                .last_click
-                .map(|(li, lt)| li == i && now.duration_since(lt) < std::time::Duration::from_millis(400))
-                .unwrap_or(false);
-            if is_double {
-                state.last_click = None;
-                if let Some(tool) = fedora::TOOLS.get(i) {
-                    if state.installed.get(i).copied().unwrap_or(false) {
-                        let _ = fedora::launch(tool);
-                    } else if matches!(fedora::install(&[tool.package]), Ok(s) if s.success()) {
-                        // Install + open in one gesture, like Win2000 Add/Remove.
-                        if let Some(flag) = state.installed.get_mut(i) {
-                            *flag = true;
-                        }
-                        let _ = fedora::launch(tool);
+            // Single click selects and opens (a missing tool installs, then opens).
+            state.selected = Some(i);
+            if let Some(tool) = fedora::TOOLS.get(i) {
+                if state.installed.get(i).copied().unwrap_or(false) {
+                    let _ = fedora::launch(tool);
+                } else if matches!(fedora::install(&[tool.package]), Ok(s) if s.success()) {
+                    // Install + open in one gesture, like Win2000 Add/Remove.
+                    if let Some(flag) = state.installed.get_mut(i) {
+                        *flag = true;
                     }
+                    let _ = fedora::launch(tool);
                 }
-            } else {
-                state.selected = Some(i);
-                state.last_click = Some((i, now));
             }
         }
         // Clicking a menubar title toggles its dropdown open/closed.
