@@ -38,6 +38,9 @@ struct Files {
     tree_expanded: HashSet<PathBuf>,
     /// Which menubar menu is open (index into MENUS), if any.
     open_menu: Option<usize>,
+    /// Left pane mode: `false` = the web-view info band (Win2000 default),
+    /// `true` = the folder tree. The "Folders" toolbar button toggles it.
+    show_tree: bool,
 }
 
 /// The menubar titles (indices used by `open_menu` / ToggleMenu).
@@ -55,6 +58,7 @@ enum Message {
     GoAddress,
     TreeToggle(PathBuf),
     TreeNav(PathBuf),
+    ToggleFolders,
     ToggleMenu(usize),
     CloseMenu,
     NewFolder,
@@ -97,6 +101,7 @@ fn launch(start: PathBuf) -> iced::Result {
                 error: None,
                 tree_expanded: home().into_iter().collect(),
                 open_menu: None,
+                show_tree: false,
             };
             f.load();
             (f, Task::none())
@@ -261,6 +266,7 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
                 state.navigate(p);
             }
         }
+        Message::ToggleFolders => state.show_tree = !state.show_tree,
         Message::Noop => {}
     }
     Task::none()
@@ -391,12 +397,19 @@ fn tool<'a>(label: &'a str, msg: Option<Message>) -> Element<'a, Message> {
 fn toolbar(state: &Files) -> Element<'_, Message> {
     let back = state.hpos > 0;
     let fwd = state.hpos + 1 < state.history.len();
+    // "Folders" stays pressed while the tree pane is showing — the Win2000
+    // toggle that swaps the left pane between the web view and the tree.
+    let folders = mde_ui::button(text("Folders").size(metrics::UI_PX))
+        .padding(pad(2.0, 8.0, 2.0, 8.0))
+        .active(state.show_tree)
+        .on_press(Message::ToggleFolders);
     let row = Row::new()
         .spacing(2.0)
         .padding(2.0)
         .push(tool("Back", back.then_some(Message::Back)))
         .push(tool("Forward", fwd.then_some(Message::Forward)))
         .push(tool("Up", Some(Message::Up)))
+        .push(folders)
         .push(tool("Home", Some(Message::Home)))
         .push(tool("Refresh", Some(Message::Refresh)));
     container(iced::widget::stack![
@@ -561,10 +574,97 @@ fn tree_pane(state: &Files) -> Element<'_, Message> {
     .into()
 }
 
+/// The display name of the current folder for the band title ("Home" at $HOME,
+/// "Filesystem" at /, else the folder name).
+fn band_title(state: &Files) -> String {
+    if home().as_deref() == Some(state.cwd.as_path()) {
+        "Home".to_string()
+    } else if state.cwd == Path::new("/") {
+        "Filesystem".to_string()
+    } else {
+        state
+            .cwd
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| state.cwd.display().to_string())
+    }
+}
+
+/// A "See also" hyperlink: blue, underlined-by-convention text that navigates.
+fn see_also(label: &str, target: PathBuf) -> Element<'_, Message> {
+    button(text(label.to_string()).size(metrics::UI_PX).color(mde_ui::infoband::accent()))
+        .on_press(Message::TreeNav(target))
+        .padding(pad(0.0, 0.0, 0.0, 0.0))
+        .style(|_t, _s| iced::widget::button::Style {
+            background: None,
+            text_color: mde_ui::infoband::accent(),
+            border: Border::default(),
+            shadow: Shadow::default(),
+        })
+        .into()
+}
+
+/// The Win2000 "web view" info band: the folder title over a fading rule, the
+/// description prompt, a yellow tip describing the selection (or the folder),
+/// and the "See also" links. Shown in the left pane unless Folders is toggled.
+fn info_band(state: &Files) -> Element<'_, Message> {
+    // The tip text: the selected item's description, else the folder's own.
+    let (prompt, tip_text) = match state.selected.and_then(|i| state.entries.get(i)) {
+        Some(e) => (
+            format!("{}:", e.name),
+            if e.is_dir {
+                format!("{} \u{2014} opens this folder.", kind(e))
+            } else {
+                format!("{} \u{2014} {}", kind(e), human(e.size))
+            },
+        ),
+        None => (
+            "Select an item to view its description.".to_string(),
+            format!("Displays the files and folders in {}.", band_title(state)),
+        ),
+    };
+
+    let mut col = Column::new()
+        .spacing(8.0)
+        .push(
+            text(band_title(state))
+                .size(metrics::INFO_TITLE_PX)
+                .font(mde_ui::font::UI_BOLD)
+                .color(mde_ui::infoband::accent()),
+        )
+        .push(container(Space::new(Length::Fill, Length::Fixed(2.0))).style(mde_ui::infoband::rule))
+        .push(text(prompt).size(metrics::UI_PX))
+        .push(
+            container(text(tip_text).size(metrics::UI_PX))
+                .style(mde_ui::infoband::tip)
+                .padding(pad(4.0, 6.0, 4.0, 6.0))
+                .width(Length::Fill),
+        )
+        .push(Space::with_height(Length::Fixed(6.0)))
+        .push(text("See also:").size(metrics::UI_PX));
+
+    if let Some(h) = home() {
+        col = col.push(see_also("My Documents", h));
+    }
+    col = col.push(see_also("My Computer", PathBuf::from("/")));
+
+    container(col)
+        .style(mde_ui::infoband::band)
+        .padding(pad(10.0, 10.0, 10.0, 10.0))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
 fn view(state: &Files) -> Element<'_, Message> {
+    let left: Element<'_, Message> = if state.show_tree {
+        tree_pane(state)
+    } else {
+        info_band(state)
+    };
     let body = Row::new()
         .push(
-            container(tree_pane(state))
+            container(left)
                 .width(Length::Fixed(180.0))
                 .height(Length::Fill)
                 .padding(pad(2.0, 1.0, 2.0, 2.0)),

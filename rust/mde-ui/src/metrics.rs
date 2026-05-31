@@ -34,5 +34,9 @@ pub const UI_FONT_PT: f32 = 8.0;
 /// ONE size every UI `.size(...)` call must use, so the "8pt everywhere" rule
 /// has a single source of truth instead of scattered literals.
 pub const UI_PX: f32 = 11.0;
+/// The web-view info-band folder title — the one larger display size in the
+/// shell (Win2000 drew this caption well above body text). Single source so the
+/// band title isn't a scattered literal either.
+pub const INFO_TITLE_PX: f32 = 16.0;
 /// Title-bar font is the UI font, bold, at the same size.
 pub const TITLE_FONT_BOLD: bool = true;

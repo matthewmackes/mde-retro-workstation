@@ -7,6 +7,7 @@
 pub mod bevel;
 pub mod button;
 pub mod frame;
+pub mod infoband;
 
 pub use bevel::Bevel;
 pub use button::{button, Button};
