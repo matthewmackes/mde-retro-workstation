@@ -551,6 +551,48 @@ fn col_content_height(nodes: &[Node]) -> f32 {
         .sum()
 }
 
+/// Freedesktop icon-name candidates for a Start-menu entry, by label keyword.
+/// The resolver falls back to blank space, so an unmatched app simply shows no
+/// icon (rather than tofu). Well-known shell entries get their classic icon;
+/// program entries fall back to a generic executable.
+fn menu_icon(label: &str) -> &'static [&'static str] {
+    let l = label.to_ascii_lowercase();
+    let has = |k: &str| l.contains(k);
+    if has("program") {
+        &["applications-other", "folder-applications", "applications-all"]
+    } else if has("document") {
+        &["folder-documents", "folder"]
+    } else if has("setting") || has("control panel") || has("taskbar") {
+        &["preferences-system", "gnome-control-center"]
+    } else if has("search") || has("files or folders") {
+        &["system-search", "edit-find", "search"]
+    } else if has("on the internet") || has("internet") {
+        &["applications-internet", "web-browser", "internet-web-browser"]
+    } else if has("help") {
+        &["help-browser", "system-help", "help-contents"]
+    } else if has("run") {
+        &["system-run", "gnome-run"]
+    } else if has("log off") {
+        &["system-log-out"]
+    } else if has("shut down") {
+        &["system-shutdown"]
+    } else if has("update") {
+        &["system-software-update"]
+    } else if has("system tools") || has("administrative") {
+        &["applications-system", "preferences-system"]
+    } else if has("network") || has("dial-up") {
+        &["network-workgroup", "network-wired"]
+    } else if has("printer") {
+        &["printer"]
+    } else if has("terminal") || has("command prompt") {
+        &["utilities-terminal", "terminal"]
+    } else if has("file manager") || has("explorer") {
+        &["system-file-manager", "folder"]
+    } else {
+        &["application-x-executable", "applications-other"]
+    }
+}
+
 fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> Element<'a, Message> {
     match node {
         // Etched (engraved) menu separator: a 1px shadow line over a 1px
@@ -574,24 +616,33 @@ fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> El
             .into()
         }
         Node::Leaf(label, _) => mouse_area(
-            button(text(label).size(metrics::UI_PX))
-                .on_press(Message::Click(col, idx))
-                .width(Length::Fill)
-                .height(Length::Fixed(ITEM_H))
-                .padding(pad(4.0, 16.0, 0.0, 12.0))
-                .style(item_style(selected)),
+            button(
+                Row::new()
+                    .spacing(6.0)
+                    .align_y(iced::Alignment::Center)
+                    .push(crate::icons::icon_any(menu_icon(label), 16))
+                    .push(text(label).size(metrics::UI_PX)),
+            )
+            .on_press(Message::Click(col, idx))
+            .width(Length::Fill)
+            .height(Length::Fixed(ITEM_H))
+            .padding(pad(2.0, 16.0, 0.0, 8.0))
+            .style(item_style(selected)),
         )
         .on_right_press(Message::RightClick(col, idx))
         .into(),
         Node::Sub(label, _) => button(
             Row::new()
+                .spacing(6.0)
+                .align_y(iced::Alignment::Center)
+                .push(crate::icons::icon_any(menu_icon(label), 16))
                 .push(text(label).size(metrics::UI_PX).width(Length::Fill))
                 .push(text(">").size(metrics::UI_PX)),
         )
         .on_press(Message::Click(col, idx))
         .width(Length::Fill)
         .height(Length::Fixed(ITEM_H))
-        .padding(pad(4.0, 8.0, 0.0, 12.0))
+        .padding(pad(2.0, 8.0, 0.0, 8.0))
         .style(item_style(selected))
         .into(),
     }

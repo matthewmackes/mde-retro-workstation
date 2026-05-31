@@ -566,6 +566,7 @@ fn tree_rows(state: &Files, path: &Path, label: String, depth: u16) -> Vec<Eleme
     // no ▶/▼ glyphs, which would show as tofu boxes).
     let marker = if expanded { "-" } else { "+" };
     let row = Row::new()
+        .align_y(iced::Alignment::Center)
         .push(Space::with_width(Length::Fixed(depth as f32 * 12.0)))
         .push(
             button(text(marker).size(metrics::UI_PX))
@@ -573,12 +574,18 @@ fn tree_rows(state: &Files, path: &Path, label: String, depth: u16) -> Vec<Eleme
                 .padding(pad(0.0, 3.0, 0.0, 3.0))
                 .style(flat),
         )
+        .push(crate::icons::icon("folder", 16))
         .push(
-            button(text(label).size(metrics::UI_PX))
-                .on_press(Message::TreeNav(path.to_path_buf()))
-                .width(Length::Fill)
-                .padding(pad(0.0, 4.0, 0.0, 2.0))
-                .style(row_style(path == state.cwd)),
+            button(
+                Row::new()
+                    .spacing(4.0)
+                    .align_y(iced::Alignment::Center)
+                    .push(text(label).size(metrics::UI_PX)),
+            )
+            .on_press(Message::TreeNav(path.to_path_buf()))
+            .width(Length::Fill)
+            .padding(pad(0.0, 4.0, 0.0, 4.0))
+            .style(row_style(path == state.cwd)),
         );
     let mut rows: Vec<Element<'static, Message>> = vec![row.into()];
     if expanded {
@@ -658,13 +665,28 @@ fn info_band(state: &Files) -> Element<'_, Message> {
         ),
     };
 
+    // A large shell icon watermarks the band title (the "My Computer" graphic
+    // in the reference): home/filesystem/folder by what we're viewing.
+    let band_icon: &[&str] = if band_title(state) == "Home" {
+        &["user-home", "folder-home", "folder"]
+    } else if band_title(state) == "Filesystem" {
+        &["drive-harddisk", "computer", "folder"]
+    } else {
+        &["folder"]
+    };
     let mut col = Column::new()
         .spacing(8.0)
         .push(
-            text(band_title(state))
-                .size(metrics::INFO_TITLE_PX)
-                .font(mde_ui::font::UI_BOLD)
-                .color(mde_ui::infoband::accent()),
+            Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(crate::icons::icon_any(band_icon, 32))
+                .push(
+                    text(band_title(state))
+                        .size(metrics::INFO_TITLE_PX)
+                        .font(mde_ui::font::UI_BOLD)
+                        .color(mde_ui::infoband::accent()),
+                ),
         )
         .push(container(Space::new(Length::Fill, Length::Fixed(2.0))).style(mde_ui::infoband::rule))
         .push(text(prompt).size(metrics::UI_PX))

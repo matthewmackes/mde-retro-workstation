@@ -183,8 +183,13 @@ fn grid(state: &ControlPanel) -> Element<'_, Message> {
             } else {
                 format!("{}  (install)", tool.name)
             };
+            let row = Row::new()
+                .spacing(5.0)
+                .align_y(iced::Alignment::Center)
+                .push(crate::icons::icon_any(applet_icon(tool.name, tool.category), 16))
+                .push(text(label).size(metrics::UI_PX));
             col = col.push(
-                button(text(label).size(metrics::UI_PX))
+                button(row)
                     .on_press(Message::Activate(i))
                     .width(Length::Fill)
                     .padding(pad(2.0, 8.0, 2.0, 8.0))
@@ -197,6 +202,71 @@ fn grid(state: &ControlPanel) -> Element<'_, Message> {
         container(scrollable(col)).padding(2.0),
     ]
     .into()
+}
+
+/// Freedesktop icon-name candidates for a Control Panel applet, by name keyword
+/// then category. The resolver tries each and falls back to blank space, so an
+/// unmatched applet simply shows no icon rather than tofu.
+fn applet_icon(name: &str, category: &str) -> &'static [&'static str] {
+    let n = name.to_ascii_lowercase();
+    let has = |k: &str| n.contains(k);
+    if has("add/remove") || has("program") {
+        &["applications-other", "system-software-install", "package-x-generic"]
+    } else if has("firewall") {
+        &["network-firewall", "security-high", "preferences-system-network"]
+    } else if has("network") || has("dial-up") || has("dns") {
+        &["network-workgroup", "network-wired", "preferences-system-network"]
+    } else if has("sound") || has("multimedia") || has("audio") {
+        &["multimedia-volume-control", "audio-card", "preferences-desktop-sound"]
+    } else if has("display") || has("screen") {
+        &["preferences-desktop-display", "video-display"]
+    } else if has("partition") || has("disk") || has("storage") || has("drive") || has("usage") || has("smart") || has("health") {
+        &["drive-harddisk", "utilities-system-monitor"]
+    } else if has("user") || has("password") {
+        &["system-users", "preferences-desktop-user", "user-info"]
+    } else if has("regional") || has("language") || has("keyboard") {
+        &["preferences-desktop-keyboard", "preferences-desktop-locale"]
+    } else if has("event") || has("log") {
+        &["utilities-log-viewer", "logviewer", "text-x-generic"]
+    } else if has("security") || has("lynis") {
+        &["security-high", "preferences-system-privacy"]
+    } else if has("date") || has("time") {
+        &["preferences-system-time", "clock"]
+    } else if has("printer") || has("print") {
+        &["printer"]
+    } else if has("update") {
+        &["system-software-update"]
+    } else if has("installation media") || has("media") {
+        &["media-optical", "drive-optical"]
+    } else if has("cockpit") || has("dashboard") || has("web console") {
+        &["network-server", "applications-internet"]
+    } else if has("stacer") || has("btop") || has("htop") || has("glances") || has("iotop") || has("nvtop") || has("monitor") || has("performance") {
+        &["utilities-system-monitor", "applications-system"]
+    } else if has("timeshift") || has("snapshot") || has("backup") || has("restore") {
+        &["deja-dup", "drive-harddisk", "system-software-install"]
+    } else if has("flatpak") || has("dnf") || has("plugin") || has("package") {
+        &["package-x-generic", "system-software-install"]
+    } else if has("nmap") || has("iperf") || has("wireshark") {
+        &["network-workgroup", "applications-internet"]
+    } else if has("powertop") || has("sensor") {
+        &["battery", "preferences-system-power"]
+    } else if has("fastfetch") || has("temporary") || has("clean") {
+        &["utilities-terminal", "user-trash"]
+    } else if has("service") {
+        &["applications-system", "preferences-system"]
+    } else if has("system") {
+        &["computer", "preferences-system"]
+    } else {
+        match category {
+            "Administrative Tools" => &["applications-system", "preferences-system"],
+            "Resource Monitoring" => &["utilities-system-monitor"],
+            "Storage & Disk" => &["drive-harddisk"],
+            "Backup & Recovery" => &["drive-harddisk", "system-software-install"],
+            "Package Management" => &["package-x-generic", "system-software-install"],
+            "All-in-One Dashboard" => &["applications-system", "network-server"],
+            _ => &["preferences-system", "applications-system", "application-x-executable"],
+        }
+    }
 }
 
 fn status_bar<'a>() -> Element<'a, Message> {
