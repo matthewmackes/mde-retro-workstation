@@ -133,20 +133,12 @@ fn pad(t: f32, r: f32, b: f32, l: f32) -> Padding {
 
 fn tab_strip(current: usize) -> Element<'static, Message> {
     // Two rows (the XP/Win2000 layout, per SPEC-system.md) so all 7 tabs fit
-    // without overflowing the dialog width.
-    let make_row = |range: std::ops::Range<usize>| {
-        let mut row = Row::new().spacing(2.0).padding(pad(2.0, 4.0, 0.0, 4.0));
-        for i in range {
-            row = row.push(
-                button(text(TABS[i]).size(metrics::UI_PX))
-                    .active(i == current)
-                    .on_press(Message::SelectTab(i))
-                    .padding(pad(2.0, 6.0, 2.0, 6.0)),
-            );
-        }
-        row
-    };
-    Column::new().push(make_row(0..4)).push(make_row(4..TABS.len())).into()
+    // without overflowing the dialog width — now drawn with the authentic
+    // property-sheet tab control (active tab merges into the page).
+    let row1 = mde_ui::tab_strip(&TABS[0..4], current, Message::SelectTab);
+    let sel2 = if current >= 4 { current - 4 } else { usize::MAX };
+    let row2 = mde_ui::tab_strip(&TABS[4..], sel2, |i| Message::SelectTab(i + 4));
+    Column::new().spacing(0.0).push(row1).push(row2).into()
 }
 
 /// A "Label: value" line.

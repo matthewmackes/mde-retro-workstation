@@ -47,6 +47,9 @@ struct Menu {
     cursor: Option<usize>,
     /// The (column, index) of the right-clicked item showing a context menu.
     context: Option<(usize, usize)>,
+    /// "Show small icons in Start menu" — when false (the Win2000 default) the
+    /// root column uses large 32px icons; submenus always use small icons.
+    small_icons: bool,
 }
 
 #[to_layer_message]
@@ -70,6 +73,13 @@ pub fn run(args: &[String]) -> ExitCode {
         Some("--list-pinned") => return list_pinned(),
         _ => {}
     }
+    // Singleton: if a Start menu is already open, this launch is a duplicate
+    // (e.g. Ctrl+Esc while one is up, or a click during the first instance's
+    // start-up). Exit quietly rather than stacking another full-screen overlay
+    // — stacked overlays are what made the menu "take several clicks" to open.
+    if !acquire_singleton() {
+        return ExitCode::SUCCESS;
+    }
     match launch() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -77,6 +87,24 @@ pub fn run(args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Refuse to open a second Start menu. Uses a pid file in the runtime dir: if
+/// it names a process that is still alive (`/proc/<pid>` exists), another menu
+/// owns the slot. A stale file (the previous menu exited via `exit(0)`, which
+/// skips cleanup) is harmless — its pid is gone, so we reclaim it. Linux-only
+/// liveness check, no extra dependency.
+fn acquire_singleton() -> bool {
+    let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let path = format!("{dir}/mde-menu.pid");
+    if let Ok(s) = std::fs::read_to_string(&path) {
+        if let Ok(pid) = s.trim().parse::<u32>() {
+            if std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                return false;
+            }
+        }
+    }
+    std::fs::write(&path, std::process::id().to_string()).is_ok()
 }
 
 /// `mde menu --pin <Name> <command...>` — pin an item to the Start menu top.
@@ -138,7 +166,11 @@ fn launch() -> Result<(), iced_layershell::Error> {
             ..Default::default()
         })
         .run_with(|| {
-            (Menu { root: build_root(), open: Vec::new(), cursor: None, context: None }, Task::none())
+            let small_icons = crate::state::load().start_small_icons;
+            (
+                Menu { root: build_root(), open: Vec::new(), cursor: None, context: None, small_icons },
+                Task::none(),
+            )
         })
 }
 
@@ -171,7 +203,11 @@ fn build_root() -> Vec<Node> {
         root.push(Node::Sep);
     }
     root.extend([
-        Node::Leaf("Windows Update".into(), Act::Cmd("dnfdragora-updater".into(), false)),
+        // Quick-launch staples at the top of the menu, above Windows Update.
+        Node::Leaf("File Explorer".into(), Act::Mde("files")),
+        Node::Leaf("Terminal (Terminator)".into(), Act::Cmd("terminator".into(), false)),
+        Node::Leaf("Firefox".into(), Act::Cmd("firefox".into(), false)),
+        Node::Leaf("Windows Update".into(), Act::Cmd("dnfdragora --update-only".into(), false)),
         Node::Sep,
         Node::Sub("Programs".into(), programs_tree()),
         Node::Sub("Settings".into(), settings_tree()),
@@ -219,9 +255,10 @@ fn system_tools_tree() -> Vec<Node> {
 fn settings_tree() -> Vec<Node> {
     vec![
         Node::Leaf("Control Panel".into(), Act::Mde("control-panel")),
+        Node::Leaf("Display".into(), Act::Mde("display")),
         Node::Leaf("Network and Dial-up Connections".into(), Act::Cmd("nm-connection-editor".into(), false)),
         Node::Leaf("Printers".into(), Act::Cmd("system-config-printer".into(), false)),
-        Node::Leaf("Taskbar & Start Menu".into(), Act::Mde("control-panel")),
+        Node::Leaf("Taskbar & Start Menu".into(), Act::Mde("taskbar-properties")),
     ]
 }
 
@@ -540,14 +577,20 @@ fn item_style(selected: bool) -> impl Fn(&iced::Theme, button::Status) -> button
     }
 }
 
-const ITEM_H: f32 = metrics::MENU_HEIGHT as f32; // 18 — the SM_CYMENU ground truth
+// The Start menu uses taller rows than a menu *bar* (SM_CYMENU, 18px): the
+// classic Win2000 Start list gives each item room around its 16px icon. 18px
+// crowded the icon edge-to-edge, so the list reads as one dense block.
+const ITEM_H: f32 = 22.0;
+/// Large-icon row height for the root column (32px icon + breathing room) —
+/// the Win2000 default Start menu, taller than the small-icon list.
+const ITEM_H_LARGE: f32 = 34.0;
 const SEP_H: f32 = 7.0;
 const MAX_COL_H: f32 = 680.0;
 
-fn col_content_height(nodes: &[Node]) -> f32 {
+fn col_content_height(nodes: &[Node], row_h: f32) -> f32 {
     nodes
         .iter()
-        .map(|n| if matches!(n, Node::Sep) { SEP_H } else { ITEM_H })
+        .map(|n| if matches!(n, Node::Sep) { SEP_H } else { row_h })
         .sum()
 }
 
@@ -562,10 +605,14 @@ fn menu_icon(label: &str) -> &'static [&'static str] {
         &["applications-other", "folder-applications", "applications-all"]
     } else if has("document") {
         &["folder-documents", "folder"]
+    } else if has("display") {
+        &["preferences-desktop-display", "video-display"]
     } else if has("setting") || has("control panel") || has("taskbar") {
         &["preferences-system", "gnome-control-center"]
     } else if has("search") || has("files or folders") {
         &["system-search", "edit-find", "search"]
+    } else if has("firefox") {
+        &["firefox", "firefox-esr", "web-browser"]
     } else if has("on the internet") || has("internet") {
         &["applications-internet", "web-browser", "internet-web-browser"]
     } else if has("help") {
@@ -593,7 +640,14 @@ fn menu_icon(label: &str) -> &'static [&'static str] {
     }
 }
 
-fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> Element<'a, Message> {
+fn render_item<'a>(
+    node: &'a Node,
+    col: usize,
+    idx: usize,
+    selected: bool,
+    icon_px: u16,
+    row_h: f32,
+) -> Element<'a, Message> {
     match node {
         // Etched (engraved) menu separator: a 1px shadow line over a 1px
         // highlight line — the Win2000 sunken edge, not a single gray rule.
@@ -620,13 +674,13 @@ fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> El
                 Row::new()
                     .spacing(6.0)
                     .align_y(iced::Alignment::Center)
-                    .push(crate::icons::icon_any(menu_icon(label), 16))
+                    .push(crate::icons::icon_any(menu_icon(label), icon_px))
                     .push(text(label).size(metrics::UI_PX)),
             )
             .on_press(Message::Click(col, idx))
             .width(Length::Fill)
-            .height(Length::Fixed(ITEM_H))
-            .padding(pad(2.0, 16.0, 0.0, 8.0))
+            .height(Length::Fixed(row_h))
+            .padding(pad(0.0, 16.0, 0.0, 8.0))
             .style(item_style(selected)),
         )
         .on_right_press(Message::RightClick(col, idx))
@@ -635,23 +689,29 @@ fn render_item<'a>(node: &'a Node, col: usize, idx: usize, selected: bool) -> El
             Row::new()
                 .spacing(6.0)
                 .align_y(iced::Alignment::Center)
-                .push(crate::icons::icon_any(menu_icon(label), 16))
+                .push(crate::icons::icon_any(menu_icon(label), icon_px))
                 .push(text(label).size(metrics::UI_PX).width(Length::Fill))
                 .push(text(">").size(metrics::UI_PX)),
         )
         .on_press(Message::Click(col, idx))
         .width(Length::Fill)
-        .height(Length::Fixed(ITEM_H))
-        .padding(pad(2.0, 8.0, 0.0, 8.0))
+        .height(Length::Fixed(row_h))
+        .padding(pad(0.0, 8.0, 0.0, 8.0))
         .style(item_style(selected))
         .into(),
     }
 }
 
-fn item_list<'a>(nodes: &'a [Node], col: usize, open: Option<usize>) -> Column<'a, Message> {
+fn item_list<'a>(
+    nodes: &'a [Node],
+    col: usize,
+    open: Option<usize>,
+    icon_px: u16,
+    row_h: f32,
+) -> Column<'a, Message> {
     let mut list = Column::new().spacing(0.0);
     for (idx, node) in nodes.iter().enumerate() {
-        list = list.push(render_item(node, col, idx, open == Some(idx)));
+        list = list.push(render_item(node, col, idx, open == Some(idx), icon_px, row_h));
     }
     list
 }
@@ -683,10 +743,11 @@ fn banner<'a>(height: f32) -> Element<'a, Message> {
 }
 
 fn render_column<'a>(nodes: &'a [Node], col: usize, open: Option<usize>, width: f32) -> Element<'a, Message> {
-    let h = (col_content_height(nodes).min(MAX_COL_H)) + 4.0;
+    // Submenu columns always use the small-icon list.
+    let h = (col_content_height(nodes, ITEM_H).min(MAX_COL_H)) + 4.0;
     let panel = iced::widget::stack![
         frame::raised().thickness(2),
-        container(scrollable(item_list(nodes, col, open)).style(mde_ui::scrollbar)).padding(2.0),
+        container(scrollable(item_list(nodes, col, open, 16, ITEM_H)).style(mde_ui::scrollbar)).padding(2.0),
     ];
     container(panel)
         .width(Length::Fixed(width))
@@ -694,15 +755,19 @@ fn render_column<'a>(nodes: &'a [Node], col: usize, open: Option<usize>, width: 
         .into()
 }
 
-fn render_root_column<'a>(nodes: &'a [Node], open: Option<usize>) -> Element<'a, Message> {
-    let h = (col_content_height(nodes).min(MAX_COL_H)) + 4.0;
+fn render_root_column<'a>(nodes: &'a [Node], open: Option<usize>, large: bool) -> Element<'a, Message> {
+    // The root column is the only one that grows large icons (the Win2000
+    // default); "Show small icons in Start menu" collapses it back to 16px.
+    let (icon_px, row_h, inner_w, total_w) =
+        if large { (32, ITEM_H_LARGE, 200.0, 228.0) } else { (16, ITEM_H, 186.0, 214.0) };
+    let h = (col_content_height(nodes, row_h).min(MAX_COL_H)) + 4.0;
     let inner = Row::new().push(banner(h)).push(
-        container(scrollable(item_list(nodes, 0, open)).style(mde_ui::scrollbar))
-            .width(Length::Fixed(186.0))
+        container(scrollable(item_list(nodes, 0, open, icon_px, row_h)).style(mde_ui::scrollbar))
+            .width(Length::Fixed(inner_w))
             .padding(2.0),
     );
     container(iced::widget::stack![frame::raised().thickness(2), inner])
-        .width(Length::Fixed(214.0))
+        .width(Length::Fixed(total_w))
         .height(Length::Fixed(h))
         .into()
 }
@@ -719,23 +784,61 @@ fn highlight_for(menu: &Menu, col: usize) -> Option<usize> {
 
 fn view(menu: &Menu) -> Element<'_, Message> {
     let cols = columns(menu);
-    let mut row = Row::new().align_y(Vertical::Top);
-    row = row.push(render_root_column(cols[0], highlight_for(menu, 0)));
+    let large = !menu.small_icons;
+    let root_row_h = if large { ITEM_H_LARGE } else { ITEM_H };
+    let root_w = if large { 228.0 } else { 214.0 };
+    const SUB_W: f32 = 200.0;
+    // Item lists start this far below a column's top (the 2px container pad over
+    // the raised frame); used to line a submenu up with its parent item.
+    const TOP_PAD: f32 = 2.0;
+
+    // Per-column geometry. A submenu must open *attached to the parent item that
+    // spawned it* — its top aligned with that item — rather than all columns
+    // resting on the taskbar. `top[c]` is column c's top measured down from the
+    // root column's top; `left[c]` is its x. The root column stays anchored to
+    // the taskbar (bottom edge), and each column is then lifted by `bottom_y` so
+    // its bottom lands at the right height.
+    let row_h_of = |c: usize| if c == 0 { root_row_h } else { ITEM_H };
+    let col_h = |c: usize| col_content_height(cols[c], row_h_of(c)).min(MAX_COL_H) + 4.0;
+    let h0 = col_h(0);
+
+    let mut top = vec![0.0f32; cols.len()];
+    let mut left = vec![0.0f32; cols.len()];
     for c in 1..cols.len() {
-        row = row.push(render_column(cols[c], c, highlight_for(menu, c), 200.0));
+        let parent_row_h = row_h_of(c - 1);
+        let parent_idx = menu.open[c - 1];
+        // y of the parent item's top within column c-1.
+        let item_top: f32 = TOP_PAD
+            + cols[c - 1][..parent_idx]
+                .iter()
+                .map(|n| if matches!(n, Node::Sep) { SEP_H } else { parent_row_h })
+                .sum::<f32>();
+        top[c] = top[c - 1] + item_top;
+        left[c] = left[c - 1] + if c - 1 == 0 { root_w } else { SUB_W };
     }
 
-    let menu_panel = container(row)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .align_x(Horizontal::Left)
-        .align_y(Vertical::Bottom)
-        .padding(pad(0.0, 0.0, metrics::TASKBAR_HEIGHT as f32, 0.0));
-
     // Behind everything: a full-screen click catcher that closes the menu.
-    let overlay = mouse_area(Space::new(Length::Fill, Length::Fill)).on_press(Message::Close);
-
-    let mut layers = iced::widget::stack![overlay, menu_panel];
+    let mut layers = iced::widget::stack![
+        mouse_area(Space::new(Length::Fill, Length::Fill)).on_press(Message::Close)
+    ];
+    // Each column placed on its own full-screen layer, bottom-left anchored, then
+    // offset (left = x, bottom = lift above the taskbar) to attach to its parent.
+    for c in 0..cols.len() {
+        let elem = if c == 0 {
+            render_root_column(cols[0], highlight_for(menu, 0), large)
+        } else {
+            render_column(cols[c], c, highlight_for(menu, c), SUB_W)
+        };
+        let bottom_y = (h0 - top[c] - col_h(c)).max(0.0);
+        layers = layers.push(
+            container(elem)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Horizontal::Left)
+                .align_y(Vertical::Bottom)
+                .padding(Padding { top: 0.0, right: 0.0, bottom: bottom_y, left: left[c] }),
+        );
+    }
     // A right-clicked launcher shows a context menu (Open / Pin / Properties)
     // anchored bottom-left above the taskbar. Exact cursor-following is a
     // grim-tuning refinement; the commands are wired.
@@ -747,7 +850,7 @@ fn view(menu: &Menu) -> Element<'_, Message> {
                     .height(Length::Fill)
                     .align_x(Horizontal::Left)
                     .align_y(Vertical::Bottom)
-                    .padding(pad(0.0, 0.0, metrics::TASKBAR_HEIGHT as f32 + 16.0, 226.0)),
+                    .padding(pad(0.0, 0.0, 16.0, 226.0)),
             );
         }
     }

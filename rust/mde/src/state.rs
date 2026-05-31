@@ -21,6 +21,10 @@ pub struct PinnedItem {
 pub struct MenuState {
     #[serde(default)]
     pub pinned: Vec<PinnedItem>,
+    /// "Show small icons in Start menu" (Taskbar & Start Menu Properties).
+    /// Default false ⇒ the large-icon Start menu, the Win2000 default.
+    #[serde(default)]
+    pub start_small_icons: bool,
 }
 
 /// `~/.config/mde/menu.json` (honouring `$XDG_CONFIG_HOME`).
@@ -71,6 +75,7 @@ mod tests {
                 PinnedItem { name: "Files".into(), command: "mde files".into() },
                 PinnedItem { name: "Terminal".into(), command: "foot".into() },
             ],
+            start_small_icons: true,
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);

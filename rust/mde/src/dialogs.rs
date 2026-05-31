@@ -2,7 +2,7 @@
 //!
 //! Each runs as its own subcommand/process (`mde logoff`, `mde shutdown`) in a
 //! small fixed window; sway draws the navy title bar. Buttons use the mde-ui
-//! 3D push button; actions go through swaymsg / systemctl.
+//! 3D push button; actions go through labwc / systemctl.
 
 use std::fmt;
 use std::process::{exit, Command, ExitCode};
@@ -83,16 +83,16 @@ pub fn logoff() -> ExitCode {
     }
 }
 
-/// Run `swaymsg exit`, reporting failure instead of pretending it worked.
+/// Run `labwc --exit`, reporting failure instead of pretending it worked.
 fn do_logoff() -> ! {
-    match Command::new("swaymsg").arg("exit").status() {
+    match Command::new("labwc").arg("--exit").status() {
         Ok(s) if s.success() => exit(0),
         Ok(s) => {
-            eprintln!("mde logoff: 'swaymsg exit' failed ({s})");
+            eprintln!("mde logoff: 'labwc --exit' failed ({s})");
             exit(1);
         }
         Err(e) => {
-            eprintln!("mde logoff: could not run swaymsg: {e}");
+            eprintln!("mde logoff: could not run labwc: {e}");
             exit(1);
         }
     }
@@ -174,11 +174,11 @@ pub fn shutdown() -> ExitCode {
 
 fn do_shutdown(sel: &Choice) -> ! {
     let mut cmd = match sel {
-        Choice::LogOff => Command::new("swaymsg"),
+        Choice::LogOff => Command::new("labwc"),
         _ => Command::new("systemctl"),
     };
     let verb = match sel {
-        Choice::LogOff => "exit",
+        Choice::LogOff => "--exit",
         Choice::ShutDown => "poweroff",
         Choice::Restart => "reboot",
         Choice::StandBy => "suspend",

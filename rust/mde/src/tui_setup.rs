@@ -193,7 +193,7 @@ fn run_step(i: usize, dry_run: bool) -> Result<(), String> {
 
 fn register_session() -> Result<(), String> {
     let e = |x: std::io::Error| x.to_string();
-    let session = "[Desktop Entry]\nName=MDE-Retro\nComment=Windows 2000 desktop\nExec=sway\nType=Application\n";
+    let session = "[Desktop Entry]\nName=MDE-Retro\nComment=Windows 2000 desktop\nExec=labwc\nType=Application\n";
     std::fs::create_dir_all("/usr/share/wayland-sessions").map_err(e)?;
     std::fs::write("/usr/share/wayland-sessions/mde-retro.desktop", session).map_err(e)?;
     let greetd = "[terminal]\nvt = 1\n\n[default_session]\ncommand = \"tuigreet --remember --sessions /usr/share/wayland-sessions\"\nuser = \"greetd\"\n";

@@ -24,6 +24,11 @@ crossterm = "0.28"
 # System tray: be the StatusNotifierWatcher + Host so SNI apps (nm-applet, etc.)
 # show their icons in the taskbar. The blocking zbus API runs on its own thread.
 zbus = "4"
+# Window management on labwc (and any wlroots compositor): the taskbar lists and
+# controls toplevels via wlr-foreign-toplevel-management. Versions match those
+# already locked via iced_layershell, so nothing new is fetched.
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 [dev-dependencies]
 # Accuracy harness (tests/accuracy.rs): decode grim PNG captures and parse the
@@ -54,10 +59,13 @@ assets = [
     # these; no third-party asset bytes are shipped in the package.
     { source = "../../assets/install-assets.sh", dest = "/usr/share/mde/scripts/install-assets.sh", mode = "0755" },
     { source = "../../assets/install-chicago95.sh", dest = "/usr/share/mde/scripts/install-chicago95.sh", mode = "0755" },
-    # Skel: the rust-shell sway config `mde setup` deploys to /etc/skel + users
-    # (NOT the old script desktop — this launches the mde shell). Code/config
-    # only; no third-party asset bytes.
-    { source = "skel/.config/sway/config", dest = "/usr/share/mde/skel/.config/sway/config", mode = "0644" },
+    # Skel: the labwc config + Win2000 Openbox theme `mde setup` deploys to
+    # /etc/skel + users (this is what launches the mde shell + draws the
+    # Win2000 title bars). Code/config only; no third-party asset bytes.
+    { source = "skel/.config/labwc/rc.xml", dest = "/usr/share/mde/skel/.config/labwc/rc.xml", mode = "0644" },
+    { source = "skel/.config/labwc/autostart", dest = "/usr/share/mde/skel/.config/labwc/autostart", mode = "0755" },
+    { source = "skel/.config/labwc/menu.xml", dest = "/usr/share/mde/skel/.config/labwc/menu.xml", mode = "0644" },
+    { source = "skel/.local/share/themes/Win2000-MDE/openbox-3/themerc", dest = "/usr/share/mde/skel/.local/share/themes/Win2000-MDE/openbox-3/themerc", mode = "0644" },
     # The Wayland session entry the greeter lists.
     { source = "skel/mde-retro.desktop", dest = "/usr/share/wayland-sessions/mde-retro.desktop", mode = "0644" },
     # --- Bundled third-party assets (staged into target/rpm-assets) ----------
@@ -70,7 +78,7 @@ assets = [
 ]
 # Runtime packages the shell actually drives (the CORE set the installer needs +
 # the helpers the shell shells out to). Visual assets are fetched, not required.
-requires = { sway = "*", swaybg = "*", foot = "*", grim = "*", wmenu = "*", "xdg-utils" = "*", brightnessctl = "*", NetworkManager = "*", greetd = "*", tuigreet = "*", pipewire = "*", wireplumber = "*", polkit = "*", "google-droid-sans-fonts" = "*", "xkeyboard-config" = "*" }
+requires = { labwc = "*", "wlr-randr" = "*", wlopm = "*", swaybg = "*", swayidle = "*", swaylock = "*", foot = "*", grim = "*", "xdg-utils" = "*", brightnessctl = "*", NetworkManager = "*", greetd = "*", tuigreet = "*", pipewire = "*", wireplumber = "*", polkit = "*", "google-droid-sans-fonts" = "*", "xkeyboard-config" = "*" }
 post_install_script = """
 for c in panel menu popup files control-panel system-properties run properties setup install logoff shutdown; do
     ln -sf /usr/bin/mde /usr/bin/mde-$c

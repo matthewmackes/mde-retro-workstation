@@ -17,7 +17,7 @@ use mde_ui::{font, metrics, palette};
 /// (stage title, what it does) — MDE-Retro's actual install, in Setup's voice.
 const STAGES: &[(&str, &str)] = &[
     ("Collecting information", "Setup is examining your computer and checking that the required components are available."),
-    ("Installing packages", "Setup is installing sway, foot, fonts and the system tools MDE-Retro uses."),
+    ("Installing packages", "Setup is installing labwc, foot, fonts and the system tools MDE-Retro uses."),
     ("Deploying configuration", "Setup is copying the MDE-Retro configuration files into your home directory."),
     ("Installing visual assets", "Setup is installing the Chicago95 icons, cursors and sounds and the Win2k icon theme."),
     ("Installing the shell", "Setup is installing the mde shell, Control Panel, and the native Device Manager."),

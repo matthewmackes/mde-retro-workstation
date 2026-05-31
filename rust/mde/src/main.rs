@@ -14,20 +14,24 @@ use std::process::ExitCode;
 mod apps;
 mod control_panel;
 mod dialogs;
+mod display;
+mod filedialog;
 mod fedora;
 mod files;
 mod icons;
 mod install;
 mod installer;
 mod menu;
+mod outputs;
 mod panel;
 mod popup;
 mod state;
-mod sway;
 mod sysinfo;
 mod tray;
 mod system_properties;
+mod taskbar_properties;
 mod tui_setup;
+mod wlr;
 
 const USAGE: &str = "\
 mde — Windows 2000 desktop shell for Sway (MDE-Retro)
@@ -42,9 +46,12 @@ COMMANDS:
     popup KIND       Context menu (kinds: taskbar, start) for the panel
     files [PATH]     Explorer-style file manager
     control-panel    Windows 2000 Control Panel
+    display [--outputs]   Display Properties (resolution, wallpaper, screen saver)
+    filedialog [--save] [--filter ...]   Common Open/Save file dialog (prints path)
     run              Run dialog (type a command to launch)
     properties NAME TARGET   Launcher/file Properties dialog
     system-properties [--info|--devices]   System facts / Device Manager data
+    taskbar-properties   Taskbar and Start Menu Properties
     setup [--tui|--gui|--dry-run]   Install/configure MDE-Retro
     install [--assets]   Fetch Chicago95 + Win2k assets (first run)
     logoff           Log Off confirmation dialog
@@ -77,6 +84,8 @@ fn main() -> ExitCode {
         "popup" => popup::run(rest),
         "files" => files::run(rest),
         "control-panel" => control_panel::run(rest),
+        "display" => display::run(rest),
+        "filedialog" => filedialog::run(rest),
         "run" => dialogs::run_dialog(),
         "properties" => {
             let name = rest.first().cloned().unwrap_or_default();
@@ -84,6 +93,11 @@ fn main() -> ExitCode {
             dialogs::properties(name, target)
         }
         "system-properties" => system_properties::run(rest),
+        "taskbar-properties" => taskbar_properties::run(rest),
+        "__wlr-list" => {
+            wlr::debug_list();
+            return ExitCode::SUCCESS;
+        }
         "logoff" => dialogs::logoff(),
         "shutdown" => dialogs::shutdown(),
         "setup" => installer::dispatch(rest),

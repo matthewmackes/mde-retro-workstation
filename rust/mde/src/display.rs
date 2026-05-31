@@ -1,0 +1,968 @@
+//! Display Properties — the Windows 2000 Display control panel, wired to
+//! Wayland/sway. A tabbed property sheet (Background · Screen Saver · Appearance
+//! · Effects · Settings) over the [`crate::outputs`] data layer.
+//!
+//! Changes preview live through `wlr-randr`/`swaybg`; an Apply (or OK) raises the classic
+//! 15-second "Keep these settings?" prompt that auto-reverts if you don't
+//! confirm, so a bad resolution can't lock you out. Confirmed settings persist
+//! to a sway `config.d` fragment that sway replays at login.
+//!
+//!   mde display            opens the GUI
+//!   mde display --outputs  prints the detected outputs (headless)
+
+use std::process::ExitCode;
+
+use iced::widget::{
+    checkbox, container, image, pick_list, scrollable, text, Column, Row, Space, Stack,
+};
+use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Task};
+
+use mde_ui::{button, frame, group_box, metrics, palette};
+
+use crate::outputs::{self, Desired, DesiredOutput, Mode, Output, ScreenSaver, Wallpaper};
+
+const TABS: &[&str] = &["Background", "Screen Saver", "Appearance", "Effects", "Settings"];
+const REVERT_SECS: u32 = 15;
+
+// --- pick-list option types (each needs Display + PartialEq + Clone) --------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResChoice(i32, i32);
+impl std::fmt::Display for ResChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} x {}", self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RefreshChoice(i32); // mHz
+impl std::fmt::Display for RefreshChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Mode { width: 0, height: 0, refresh_mhz: self.0 }.refresh_label())
+    }
+}
+
+/// Display scale as a whole-number percent (Eq-friendly; f64 isn't). On a
+/// fixed panel this is the reliable way to change the *effective* desktop size:
+/// logical resolution = native / scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScaleChoice(u32);
+impl ScaleChoice {
+    const ALL: [ScaleChoice; 5] =
+        [ScaleChoice(100), ScaleChoice(125), ScaleChoice(150), ScaleChoice(175), ScaleChoice(200)];
+    fn factor(self) -> f64 {
+        self.0 as f64 / 100.0
+    }
+    fn from_factor(s: f64) -> ScaleChoice {
+        ScaleChoice((s * 100.0).round() as u32)
+    }
+}
+impl std::fmt::Display for ScaleChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}%", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Orient {
+    Landscape,
+    Portrait,
+    LandscapeFlipped,
+    PortraitFlipped,
+}
+impl Orient {
+    const ALL: [Orient; 4] =
+        [Orient::Landscape, Orient::Portrait, Orient::LandscapeFlipped, Orient::PortraitFlipped];
+    fn token(self) -> &'static str {
+        match self {
+            Orient::Landscape => "normal",
+            Orient::Portrait => "90",
+            Orient::LandscapeFlipped => "180",
+            Orient::PortraitFlipped => "270",
+        }
+    }
+    fn from_token(t: &str) -> Orient {
+        match t {
+            "90" => Orient::Portrait,
+            "180" => Orient::LandscapeFlipped,
+            "270" => Orient::PortraitFlipped,
+            _ => Orient::Landscape,
+        }
+    }
+}
+impl std::fmt::Display for Orient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Orient::Landscape => "Landscape",
+            Orient::Portrait => "Portrait (90\u{00b0})",
+            Orient::LandscapeFlipped => "Landscape (flipped)",
+            Orient::PortraitFlipped => "Portrait (270\u{00b0})",
+        };
+        f.write_str(s)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BgMode {
+    Center,
+    Tile,
+    Stretch,
+    Fit,
+    Fill,
+}
+impl BgMode {
+    const ALL: [BgMode; 5] = [BgMode::Center, BgMode::Tile, BgMode::Stretch, BgMode::Fit, BgMode::Fill];
+    fn swaybg(self) -> &'static str {
+        match self {
+            BgMode::Center => "center",
+            BgMode::Tile => "tile",
+            BgMode::Stretch => "stretch",
+            BgMode::Fit => "fit",
+            BgMode::Fill => "fill",
+        }
+    }
+}
+impl std::fmt::Display for BgMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            BgMode::Center => "Center",
+            BgMode::Tile => "Tile",
+            BgMode::Stretch => "Stretch",
+            BgMode::Fit => "Fit",
+            BgMode::Fill => "Fill",
+        };
+        f.write_str(s)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scheme {
+    Standard,
+    HighContrastBlack,
+    Brick,
+    Spruce,
+}
+impl Scheme {
+    const ALL: [Scheme; 4] =
+        [Scheme::Standard, Scheme::HighContrastBlack, Scheme::Brick, Scheme::Spruce];
+    fn key(self) -> &'static str {
+        match self {
+            Scheme::Standard => "win2k-standard",
+            Scheme::HighContrastBlack => "high-contrast-black",
+            Scheme::Brick => "win2k-brick",
+            Scheme::Spruce => "win2k-spruce",
+        }
+    }
+}
+impl std::fmt::Display for Scheme {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Scheme::Standard => "Windows Standard",
+            Scheme::HighContrastBlack => "High Contrast Black",
+            Scheme::Brick => "Brick",
+            Scheme::Spruce => "Spruce",
+        };
+        f.write_str(s)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WaitChoice(u32); // minutes
+impl std::fmt::Display for WaitChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            0 => f.write_str("(None)"),
+            1 => f.write_str("1 minute"),
+            n => write!(f, "{n} minutes"),
+        }
+    }
+}
+const WAIT_OPTIONS: [WaitChoice; 8] = [
+    WaitChoice(0),
+    WaitChoice(1),
+    WaitChoice(2),
+    WaitChoice(5),
+    WaitChoice(10),
+    WaitChoice(15),
+    WaitChoice(30),
+    WaitChoice(60),
+];
+
+/// Where to place the selected (non-primary) output relative to the primary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place {
+    RightOf,
+    LeftOf,
+    Above,
+    Below,
+}
+impl Place {
+    const ALL: [Place; 4] = [Place::RightOf, Place::LeftOf, Place::Above, Place::Below];
+}
+impl std::fmt::Display for Place {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Place::RightOf => "Right of primary",
+            Place::LeftOf => "Left of primary",
+            Place::Above => "Above primary",
+            Place::Below => "Below primary",
+        };
+        f.write_str(s)
+    }
+}
+
+// --- state -----------------------------------------------------------------
+
+struct Display {
+    tab: usize,
+    live: Vec<Output>,
+    desired: Vec<DesiredOutput>,
+    selected: usize,
+    /// Snapshot to restore on Cancel / revert (the geometry at open).
+    baseline: Vec<DesiredOutput>,
+
+    // Background
+    wallpapers: Vec<String>,
+    wp_selected: Option<usize>,
+    bg_mode: BgMode,
+
+    // Screen saver
+    wait: WaitChoice,
+    lock: bool,
+
+    // Appearance
+    scheme: Scheme,
+
+    // Effects (sway has no effect engine — these are faithful-but-inert except
+    // where noted; kept for the 1:1 control set).
+    fx_transition: bool,
+    fx_drag_contents: bool,
+    fx_large_icons: bool,
+
+    /// Identify overlay: flash each output's number in its preview.
+    identify: bool,
+
+    /// Revert prompt: seconds remaining and the close-on-keep flag.
+    revert: Option<u32>,
+    close_on_keep: bool,
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    SelectTab(usize),
+    SelectOutput(usize),
+    SetResolution(ResChoice),
+    SetRefresh(RefreshChoice),
+    SetOrient(Orient),
+    SetScale(ScaleChoice),
+    SetPlace(Place),
+    Identify,
+
+    SelectWallpaper(usize),
+    SetBgMode(BgMode),
+    Browse,
+    Browsed(Option<String>),
+
+    SetWait(WaitChoice),
+    ToggleLock(bool),
+
+    SetScheme(Scheme),
+    ToggleFxTransition(bool),
+    ToggleFxDrag(bool),
+    ToggleFxLargeIcons(bool),
+
+    Apply,
+    Ok,
+    Cancel,
+    KeepSettings,
+    RevertNow,
+    Tick,
+}
+
+pub fn run(args: &[String]) -> ExitCode {
+    if args.iter().any(|a| a == "--outputs") {
+        for o in outputs::query() {
+            println!(
+                "{}  {}  {}  {:?}  scale={}  transform={}  @({},{})",
+                o.name,
+                if o.active { "on" } else { "off" },
+                o.label(),
+                o.current.map(|m| m.res_label()),
+                o.scale,
+                o.transform,
+                o.x,
+                o.y
+            );
+        }
+        return ExitCode::SUCCESS;
+    }
+    match gui() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("mde display: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn gui() -> iced::Result {
+    iced::application(|_: &Display| "Display Properties".to_string(), update, view)
+        .window_size(iced::Size::new(440.0, 540.0))
+        .resizable(false)
+        .theme(|_| iced::Theme::Light)
+        .subscription(|_: &Display| iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::Tick))
+        .font(mde_ui::font::REGULAR_BYTES)
+        .font(mde_ui::font::BOLD_BYTES)
+        .default_font(mde_ui::font::UI)
+        .run_with(|| {
+            let live = outputs::query();
+            let desired = outputs::desired_from(&live);
+            let selected = live.iter().position(|o| o.focused).unwrap_or(0);
+            let wallpapers = scan_wallpapers();
+            (
+                Display {
+                    tab: 4, // open on Settings (the display-manager core)
+                    baseline: desired.clone(),
+                    desired,
+                    live,
+                    selected,
+                    wallpapers,
+                    wp_selected: None,
+                    bg_mode: BgMode::Fill,
+                    wait: WaitChoice(0),
+                    lock: true,
+                    scheme: Scheme::Standard,
+                    fx_transition: true,
+                    fx_drag_contents: true,
+                    fx_large_icons: false,
+                    identify: false,
+                    revert: None,
+                    close_on_keep: false,
+                },
+                Task::none(),
+            )
+        })
+}
+
+// --- update ----------------------------------------------------------------
+
+fn update(state: &mut Display, message: Message) -> Task<Message> {
+    match message {
+        Message::SelectTab(i) => state.tab = i,
+        Message::SelectOutput(i) => {
+            if i < state.desired.len() {
+                state.selected = i;
+            }
+        }
+        Message::SetResolution(ResChoice(w, h)) => {
+            if let Some(d) = state.desired.get_mut(state.selected) {
+                d.width = w;
+                d.height = h;
+                // Snap refresh to one this resolution actually supports.
+                if let Some(o) = state.live.get(state.selected) {
+                    if let Some(best) = o.refreshes_at(w, h).first() {
+                        d.refresh_mhz = best.refresh_mhz;
+                    }
+                }
+            }
+        }
+        Message::SetRefresh(RefreshChoice(mhz)) => {
+            if let Some(d) = state.desired.get_mut(state.selected) {
+                d.refresh_mhz = mhz;
+            }
+        }
+        Message::SetOrient(o) => {
+            if let Some(d) = state.desired.get_mut(state.selected) {
+                d.transform = o.token().to_string();
+            }
+        }
+        Message::SetScale(s) => {
+            if let Some(d) = state.desired.get_mut(state.selected) {
+                d.scale = s.factor();
+            }
+        }
+        Message::SetPlace(p) => place_selected(state, p),
+        Message::Identify => state.identify = !state.identify,
+
+        Message::SelectWallpaper(i) => state.wp_selected = Some(i),
+        Message::SetBgMode(m) => state.bg_mode = m,
+        Message::Browse => {
+            return Task::perform(async { browse_file() }, Message::Browsed);
+        }
+        Message::Browsed(Some(path)) => {
+            state.wallpapers.push(path);
+            state.wp_selected = Some(state.wallpapers.len() - 1);
+        }
+        Message::Browsed(None) => {}
+
+        Message::SetWait(w) => state.wait = w,
+        Message::ToggleLock(b) => state.lock = b,
+
+        Message::SetScheme(s) => state.scheme = s,
+        Message::ToggleFxTransition(b) => state.fx_transition = b,
+        Message::ToggleFxDrag(b) => state.fx_drag_contents = b,
+        Message::ToggleFxLargeIcons(b) => state.fx_large_icons = b,
+
+        Message::Apply => {
+            ensure_backends();
+            outputs::apply_live(&build_desired(state));
+            state.revert = Some(REVERT_SECS);
+            state.close_on_keep = false;
+        }
+        Message::Ok => {
+            ensure_backends();
+            outputs::apply_live(&build_desired(state));
+            state.revert = Some(REVERT_SECS);
+            state.close_on_keep = true;
+        }
+        Message::Cancel => {
+            // Undo any live preview, then quit.
+            outputs::revert_to(&baseline_desired(state));
+            std::process::exit(0);
+        }
+        Message::KeepSettings => {
+            let _ = outputs::persist(&build_desired(state));
+            state.baseline = state.desired.clone();
+            state.revert = None;
+            if state.close_on_keep {
+                std::process::exit(0);
+            }
+        }
+        Message::RevertNow => {
+            outputs::revert_to(&baseline_desired(state));
+            state.desired = state.baseline.clone();
+            state.revert = None;
+            state.close_on_keep = false;
+        }
+        Message::Tick => {
+            if let Some(n) = state.revert {
+                if n <= 1 {
+                    // Timed out — auto-revert.
+                    outputs::revert_to(&baseline_desired(state));
+                    state.desired = state.baseline.clone();
+                    state.revert = None;
+                    state.close_on_keep = false;
+                } else {
+                    state.revert = Some(n - 1);
+                }
+            }
+        }
+    }
+    Task::none()
+}
+
+/// Build the full desired state (geometry + wallpaper + saver + scheme) the
+/// Apply/persist paths consume.
+fn build_desired(state: &Display) -> Desired {
+    Desired {
+        outputs: state.desired.clone(),
+        wallpaper: state.wp_selected.and_then(|i| state.wallpapers.get(i)).map(|p| Wallpaper {
+            path: p.clone(),
+            mode: state.bg_mode.swaybg().to_string(),
+        }),
+        screensaver: Some(ScreenSaver { minutes: state.wait.0, lock: state.lock }),
+        scheme: Some(state.scheme.key().to_string()),
+    }
+}
+
+/// The baseline state for revert (only geometry needs undoing live).
+fn baseline_desired(state: &Display) -> Desired {
+    Desired { outputs: state.baseline.clone(), ..Desired::default() }
+}
+
+/// Place the selected non-primary output relative to the primary (focused) one,
+/// updating its logical position.
+fn place_selected(state: &mut Display, p: Place) {
+    let Some(primary) = state.live.iter().position(|o| o.focused) else { return };
+    if primary == state.selected {
+        return;
+    }
+    let (px, py, pw, ph) = logical_rect(&state.desired[primary]);
+    let (_, _, sw, sh) = logical_rect(&state.desired[state.selected]);
+    let (nx, ny) = match p {
+        Place::RightOf => (px + pw, py),
+        Place::LeftOf => (px - sw, py),
+        Place::Above => (px, py - sh),
+        Place::Below => (px, py + ph),
+    };
+    let d = &mut state.desired[state.selected];
+    d.x = nx;
+    d.y = ny;
+}
+
+/// Logical (x, y, w, h) of a desired output, accounting for rotation + scale.
+fn logical_rect(d: &DesiredOutput) -> (i32, i32, i32, i32) {
+    let rotated = d.transform == "90" || d.transform == "270";
+    let (mut w, mut h) = if rotated { (d.height, d.width) } else { (d.width, d.height) };
+    if d.scale > 0.0 {
+        w = (w as f64 / d.scale).round() as i32;
+        h = (h as f64 / d.scale).round() as i32;
+    }
+    (d.x, d.y, w, h)
+}
+
+fn ensure_backends() {
+    let missing = outputs::missing_backends();
+    if !missing.is_empty() {
+        let _ = crate::fedora::install(&missing);
+    }
+}
+
+// --- wallpaper sources ------------------------------------------------------
+
+fn scan_wallpapers() -> Vec<String> {
+    let mut out = Vec::new();
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(h) = &home {
+        dirs.push(h.join("Pictures"));
+        dirs.push(h.join(".local/share/backgrounds"));
+        dirs.push(h.join(".local/share/mde/wallpapers")); // bundled look-alike set
+    }
+    dirs.push("/usr/share/backgrounds".into());
+    for dir in dirs {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+                if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "bmp" | "webp") {
+                    if let Some(s) = p.to_str() {
+                        out.push(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Open the shell's own Common File Dialog (`mde filedialog`) and return the
+/// chosen path. Falls back to nothing if the dialog is cancelled.
+fn browse_file() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let o = std::process::Command::new(exe)
+        .args([
+            "filedialog",
+            "--title",
+            "Browse",
+            "--filter",
+            "Images:png,jpg,jpeg,bmp,webp;All Files:*",
+        ])
+        .output()
+        .ok()?;
+    if o.status.success() {
+        let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if !s.is_empty() {
+            return Some(s);
+        }
+    }
+    None
+}
+
+// --- view helpers -----------------------------------------------------------
+
+fn pad(t: f32, r: f32, b: f32, l: f32) -> Padding {
+    Padding { top: t, right: r, bottom: b, left: l }
+}
+
+fn label(s: &str) -> Element<'static, Message> {
+    text(s.to_string()).size(metrics::UI_PX).into()
+}
+
+fn bold(s: &str) -> Element<'static, Message> {
+    text(s.to_string()).size(metrics::UI_PX).font(mde_ui::font::UI_BOLD).into()
+}
+
+fn tab_strip(current: usize) -> Element<'static, Message> {
+    mde_ui::tab_strip(TABS, current, Message::SelectTab)
+}
+
+/// The classic monitor graphic: a raised silver bezel around a "screen" filled
+/// with the wallpaper preview (or the desktop color), plus a small stand. Shows
+/// the output number when Identify is on.
+fn monitor_graphic<'a>(screen: Element<'a, Message>, number: Option<usize>) -> Element<'a, Message> {
+    let inner = container(screen).width(Length::Fixed(180.0)).height(Length::Fixed(135.0)).padding(2.0);
+    let mut screen_stack = Stack::new()
+        .push(iced::widget::stack![frame::sunken().thickness(2), inner]);
+    if let Some(n) = number {
+        screen_stack = screen_stack.push(
+            container(text(format!("{}", n + 1)).size(48.0).font(mde_ui::font::UI_BOLD).color(Color::WHITE))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill),
+        );
+    }
+    let bezel = container(iced::widget::stack![frame::raised().thickness(2), container(screen_stack).padding(8.0)])
+        .style(|_| container::Style {
+            background: Some(Background::Color(palette::color(palette::BUTTON_FACE))),
+            ..container::Style::default()
+        });
+    let stand = container(Space::new(Length::Fixed(60.0), Length::Fixed(10.0)))
+        .style(|_| container::Style {
+            background: Some(Background::Color(palette::color(palette::BUTTON_FACE))),
+            border: Border { color: palette::color(palette::BUTTON_SHADOW), width: 1.0, radius: 0.0.into() },
+            ..container::Style::default()
+        });
+    Column::new()
+        .align_x(iced::Alignment::Center)
+        .push(bezel)
+        .push(stand)
+        .into()
+}
+
+/// The preview "screen" content: the chosen wallpaper, or a flat desktop color.
+fn screen_preview(state: &Display) -> Element<'static, Message> {
+    if let Some(path) = state.wp_selected.and_then(|i| state.wallpapers.get(i)) {
+        return image(image::Handle::from_path(path))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .content_fit(iced::ContentFit::Cover)
+            .into();
+    }
+    // No wallpaper: the Win2000 default desktop teal.
+    container(Space::new(Length::Fill, Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(|_| container::Style {
+            background: Some(Background::Color(Color::from_rgb8(0x3a, 0x6e, 0x6e))),
+            ..container::Style::default()
+        })
+        .into()
+}
+
+// --- tabs -------------------------------------------------------------------
+
+fn background_tab(state: &Display) -> Element<'_, Message> {
+    let preview = monitor_graphic(screen_preview(state), state.identify.then_some(state.selected));
+
+    let mut list = Column::new().spacing(0.0);
+    if state.wallpapers.is_empty() {
+        list = list.push(container(label("(no images found in Pictures / backgrounds)")).padding(pad(2.0, 4.0, 2.0, 4.0)));
+    }
+    for (i, wp) in state.wallpapers.iter().enumerate() {
+        let name = std::path::Path::new(wp).file_name().and_then(|s| s.to_str()).unwrap_or(wp);
+        list = list.push(
+            iced::widget::button(text(name.to_string()).size(metrics::UI_PX))
+                .on_press(Message::SelectWallpaper(i))
+                .width(Length::Fill)
+                .padding(pad(2.0, 6.0, 2.0, 6.0))
+                .style(row_style(state.wp_selected == Some(i))),
+        );
+    }
+    let well = iced::widget::stack![
+        frame::sunken().face(palette::color(palette::WINDOW)),
+        container(scrollable(list).style(mde_ui::scrollbar)).padding(2.0),
+    ];
+
+    let controls = Column::new()
+        .spacing(8.0)
+        .push(bold("Select a background picture or HTML document as Wallpaper:"))
+        .push(container(well).height(Length::Fixed(150.0)))
+        .push(
+            Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(button(text("Browse\u{2026}").size(metrics::UI_PX)).on_press(Message::Browse))
+                .push(Space::with_width(Length::Fill))
+                .push(label("Picture Position:"))
+                .push(pick_list(BgMode::ALL.to_vec(), Some(state.bg_mode), Message::SetBgMode).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX)),
+        );
+
+    Column::new()
+        .spacing(12.0)
+        .push(container(preview).width(Length::Fill).center_x(Length::Fill))
+        .push(controls)
+        .into()
+}
+
+fn screensaver_tab(state: &Display) -> Element<'_, Message> {
+    let preview = monitor_graphic(screen_preview(state), None);
+    let group = Column::new()
+        .spacing(8.0)
+        .push(
+            Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(label("Wait:"))
+                .push(pick_list(WAIT_OPTIONS.to_vec(), Some(state.wait), Message::SetWait).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX)),
+        )
+        .push(
+            checkbox("On resume, password protect (swaylock)", state.lock)
+                .on_toggle(Message::ToggleLock)
+                .style(mde_ui::checkbox_style)
+                .text_size(metrics::UI_PX),
+        )
+        .push(label(if outputs::have("swayidle") {
+            "Uses swayidle to blank the screen (and swaylock to lock) after the wait."
+        } else {
+            "swayidle is not installed \u{2014} Apply will offer to install it."
+        }));
+
+    Column::new()
+        .spacing(12.0)
+        .push(container(preview).width(Length::Fill).center_x(Length::Fill))
+        .push(group_box("Energy saving / screen saver", group))
+        .into()
+}
+
+fn appearance_tab(state: &Display) -> Element<'_, Message> {
+    // A mock window preview, recolored by the chosen scheme.
+    let (border_hex, _bg, _txt) = outputs::scheme_colors(state.scheme.key());
+    let title_color = parse_hex(border_hex);
+    let title = container(text("Active Window").size(metrics::UI_PX).font(mde_ui::font::UI_BOLD).color(Color::WHITE))
+        .width(Length::Fill)
+        .padding(pad(2.0, 6.0, 2.0, 6.0))
+        .style(move |_| container::Style {
+            background: Some(Background::Color(title_color)),
+            ..container::Style::default()
+        });
+    let mock = iced::widget::stack![
+        frame::raised().thickness(2),
+        Column::new()
+            .push(title)
+            .push(container(label("Window Text")).padding(8.0))
+    ];
+    let preview = container(mock).width(Length::Fixed(220.0)).height(Length::Fixed(90.0));
+
+    let group = Column::new()
+        .spacing(8.0)
+        .push(
+            Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(label("Scheme:"))
+                .push(pick_list(Scheme::ALL.to_vec(), Some(state.scheme), Message::SetScheme).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX)),
+        )
+        .push(label("Applying rewrites the labwc Win2000 theme colours and reconfigures the window decorations. Repainting the mde shell itself adopts the scheme on next launch."));
+
+    Column::new()
+        .spacing(12.0)
+        .push(container(preview).width(Length::Fill).center_x(Length::Fill))
+        .push(group_box("Appearance", group))
+        .into()
+}
+
+fn effects_tab(state: &Display) -> Element<'_, Message> {
+    let group = Column::new()
+        .spacing(8.0)
+        .push(
+            checkbox("Use transition effects for menus and tooltips", state.fx_transition)
+                .on_toggle(Message::ToggleFxTransition)
+                .style(mde_ui::checkbox_style)
+                .text_size(metrics::UI_PX),
+        )
+        .push(
+            checkbox("Show window contents while dragging", state.fx_drag_contents)
+                .on_toggle(Message::ToggleFxDrag)
+                .style(mde_ui::checkbox_style)
+                .text_size(metrics::UI_PX),
+        )
+        .push(
+            checkbox("Use large icons", state.fx_large_icons)
+                .on_toggle(Message::ToggleFxLargeIcons)
+                .style(mde_ui::checkbox_style)
+                .text_size(metrics::UI_PX),
+        )
+        .push(label("Note: labwc has no compositor effect engine, so these are recorded for fidelity but have no live visual effect."));
+    Column::new().spacing(12.0).push(group_box("Visual effects", group)).into()
+}
+
+fn settings_tab(state: &Display) -> Element<'_, Message> {
+    let preview = monitor_graphic(screen_preview(state), state.identify.then_some(state.selected));
+
+    // Output picker (the "Display:" dropdown), when more than one.
+    let mut head = Column::new().spacing(8.0);
+    if state.desired.len() > 1 {
+        let mut row = Row::new().spacing(4.0).align_y(iced::Alignment::Center).push(label("Display:"));
+        for (i, o) in state.live.iter().enumerate() {
+            row = row.push(
+                button(text(format!("{}. {}", i + 1, o.name)).size(metrics::UI_PX))
+                    .active(i == state.selected)
+                    .on_press(Message::SelectOutput(i)),
+            );
+        }
+        head = head.push(row);
+    }
+
+    let controls: Element<Message> = match (state.live.get(state.selected), state.desired.get(state.selected)) {
+        (Some(o), Some(d)) => {
+            let res_opts: Vec<ResChoice> = o.resolutions().into_iter().map(|(w, h)| ResChoice(w, h)).collect();
+            let cur_res = ResChoice(d.width, d.height);
+            let refresh_opts: Vec<RefreshChoice> =
+                o.refreshes_at(d.width, d.height).into_iter().map(|m| RefreshChoice(m.refresh_mhz)).collect();
+
+            let area = Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(label("Screen area:"))
+                .push(pick_list(res_opts, Some(cur_res), Message::SetResolution).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX));
+
+            let refresh = Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(label("Refresh rate:"))
+                .push(pick_list(refresh_opts, Some(RefreshChoice(d.refresh_mhz)), Message::SetRefresh).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX));
+
+            let orient = Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(label("Orientation:"))
+                .push(pick_list(Orient::ALL.to_vec(), Some(Orient::from_token(&d.transform)), Message::SetOrient).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX));
+
+            // Scale: the effective "screen area" on a fixed panel. Show the
+            // resulting logical resolution next to the percentage.
+            let (eff_w, eff_h) = if d.scale > 0.0 {
+                ((d.width as f64 / d.scale).round() as i32, (d.height as f64 / d.scale).round() as i32)
+            } else {
+                (d.width, d.height)
+            };
+            let scale = Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(label("Scale:"))
+                .push(pick_list(ScaleChoice::ALL.to_vec(), Some(ScaleChoice::from_factor(d.scale)), Message::SetScale).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX))
+                .push(label(&format!("\u{2192} {eff_w} x {eff_h}")));
+
+            // Colors: present but fixed at True Color (Wayland is always 32-bit).
+            let colors = Row::new()
+                .spacing(8.0)
+                .align_y(iced::Alignment::Center)
+                .push(label("Colors:"))
+                .push(
+                    container(label("True Color (32 bit)"))
+                        .padding(pad(1.0, 6.0, 1.0, 6.0))
+                        .style(|_| container::Style {
+                            background: Some(Background::Color(palette::color(palette::BUTTON_FACE))),
+                            text_color: Some(palette::color(palette::GRAY_TEXT)),
+                            border: Border { color: palette::color(palette::BUTTON_SHADOW), width: 1.0, radius: 0.0.into() },
+                            ..container::Style::default()
+                        }),
+                );
+
+            let mut col = Column::new().spacing(8.0).push(area).push(refresh).push(orient).push(scale).push(colors);
+
+            // Multi-monitor placement of the selected (non-primary) output.
+            if state.desired.len() > 1 && !o.focused {
+                col = col.push(
+                    Row::new()
+                        .spacing(8.0)
+                        .align_y(iced::Alignment::Center)
+                        .push(label("Position:"))
+                        .push(pick_list(Place::ALL.to_vec(), None::<Place>, Message::SetPlace).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX)),
+                );
+            }
+            col.into()
+        }
+        _ => label("No displays detected.").into(),
+    };
+
+    let identify = button(text("Identify").size(metrics::UI_PX)).on_press(Message::Identify);
+
+    Column::new()
+        .spacing(12.0)
+        .push(container(preview).width(Length::Fill).center_x(Length::Fill))
+        .push(head)
+        .push(group_box("Display", controls))
+        .push(Row::new().push(Space::with_width(Length::Fill)).push(identify))
+        .into()
+}
+
+fn tab_content(state: &Display) -> Element<'_, Message> {
+    match state.tab {
+        0 => background_tab(state),
+        1 => screensaver_tab(state),
+        2 => appearance_tab(state),
+        3 => effects_tab(state),
+        4 => settings_tab(state),
+        _ => label("?").into(),
+    }
+}
+
+fn row_style(selected: bool) -> impl Fn(&iced::Theme, iced::widget::button::Status) -> iced::widget::button::Style {
+    move |_t, status| {
+        let hot = selected
+            || matches!(status, iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed);
+        iced::widget::button::Style {
+            background: hot.then(|| Background::Color(palette::color(palette::HIGHLIGHT))),
+            text_color: if hot { palette::color(palette::HIGHLIGHT_TEXT) } else { palette::color(palette::WINDOW_TEXT) },
+            border: Border::default(),
+            shadow: Shadow::default(),
+        }
+    }
+}
+
+fn parse_hex(s: &str) -> Color {
+    let h = s.trim_start_matches('#');
+    let r = u8::from_str_radix(&h[0..2], 16).unwrap_or(0);
+    let g = u8::from_str_radix(&h[2..4], 16).unwrap_or(0);
+    let b = u8::from_str_radix(&h[4..6], 16).unwrap_or(0);
+    Color::from_rgb8(r, g, b)
+}
+
+fn view(state: &Display) -> Element<'_, Message> {
+    let panel = iced::widget::stack![
+        frame::raised(),
+        container(tab_content(state)).padding(12.0).width(Length::Fill).height(Length::Fill),
+    ];
+
+    let buttons = Row::new()
+        .spacing(8.0)
+        .push(Space::with_width(Length::Fill))
+        .push(button(text("OK").size(metrics::UI_PX)).on_press(Message::Ok).default(true).width(Length::Fixed(80.0)))
+        .push(button(text("Cancel").size(metrics::UI_PX)).on_press(Message::Cancel).width(Length::Fixed(80.0)))
+        .push(button(text("Apply").size(metrics::UI_PX)).on_press(Message::Apply).width(Length::Fixed(80.0)));
+
+    let body = Column::new()
+        .spacing(6.0)
+        .padding(pad(6.0, 10.0, 10.0, 10.0))
+        .push(tab_strip(state.tab))
+        .push(container(panel).height(Length::Fill))
+        .push(buttons);
+
+    let root = container(body)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(|_| container::Style {
+            background: Some(Background::Color(palette::color(palette::MENU))),
+            ..container::Style::default()
+        });
+
+    let mut layers = Stack::new().push(root);
+    if let Some(secs) = state.revert {
+        layers = layers.push(revert_dialog(secs));
+    }
+    layers.into()
+}
+
+/// The modal "Keep these settings?" confirm with its countdown.
+fn revert_dialog(secs: u32) -> Element<'static, Message> {
+    let body = Column::new()
+        .spacing(10.0)
+        .align_x(iced::Alignment::Center)
+        .padding(pad(16.0, 16.0, 12.0, 16.0))
+        .push(bold("Display Settings"))
+        .push(label("Your desktop has been reconfigured."))
+        .push(label(&format!("Do you want to keep these settings? Reverting in {secs} seconds\u{2026}")))
+        .push(
+            Row::new()
+                .spacing(8.0)
+                .push(button(text("Yes").size(metrics::UI_PX)).on_press(Message::KeepSettings).width(Length::Fixed(70.0)))
+                .push(button(text("No").size(metrics::UI_PX)).on_press(Message::RevertNow).width(Length::Fixed(70.0))),
+        );
+    let panel = container(iced::widget::stack![frame::raised(), container(body)])
+        .width(Length::Fixed(340.0))
+        .height(Length::Fixed(150.0));
+    // A dim catcher behind the dialog (also closes nothing — modal).
+    Stack::new()
+        .push(
+            container(Space::new(Length::Fill, Length::Fill)).style(|_| container::Style {
+                background: Some(Background::Color(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.35 })),
+                ..container::Style::default()
+            }),
+        )
+        .push(container(panel).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).center_y(Length::Fill))
+        .into()
+}

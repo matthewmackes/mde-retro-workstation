@@ -59,17 +59,24 @@ fn items_for(kind: &str) -> Vec<Item> {
             Item { label: "Open", command: format!("'{mde}' files") },
             Item { label: "Search\u{2026}", command: format!("'{mde}' files \"$HOME\"") },
             sep(),
-            Item { label: "Properties", command: format!("'{mde}' control-panel") },
+            Item { label: "Properties", command: format!("'{mde}' taskbar-properties") },
         ],
-        // Taskbar: actions that map cleanly onto sway + our tools.
-        _ => vec![
-            Item { label: "Tile Windows Horizontally", command: "swaymsg 'layout splith'".into() },
-            Item { label: "Tile Windows Vertically", command: "swaymsg 'layout splitv'".into() },
-            Item { label: "Minimize All Windows", command: "swaymsg '[workspace=__focused__] move scratchpad'".into() },
+        // Desktop right-click (Win2000): Refresh / New Folder / Properties.
+        // (labwc also serves its own root-menu; this is the panel-driven one.)
+        "desktop" => vec![
+            Item { label: "Refresh", command: "labwc --reconfigure".into() },
             sep(),
+            Item { label: "New Folder", command: format!("'{mde}' files \"$HOME/Desktop\"") },
+            sep(),
+            Item { label: "Properties", command: format!("'{mde}' display") },
+        ],
+        // Taskbar empty-area menu. Per-window Restore/Min/Max/Close now live on
+        // the labwc titlebar + its right-click client-menu, so this keeps only
+        // the global actions.
+        _ => vec![
             Item { label: "Task Manager", command: "foot -o font=monospace:size=12 sh -c 'btop || htop || top'".into() },
             sep(),
-            Item { label: "Properties", command: format!("'{mde}' control-panel") },
+            Item { label: "Properties", command: format!("'{mde}' taskbar-properties") },
         ],
     }
 }
@@ -178,11 +185,13 @@ fn view(state: &Popup) -> Element<'_, Message> {
         .width(Length::Fixed(220.0))
         .height(Length::Fixed(h));
 
-    // Bottom-left, lifted above the taskbar; a full-screen catcher closes it.
+    // Bottom-left; a full-screen catcher closes it. The overlay surface is
+    // already clipped above the taskbar's exclusive zone, so the menu only needs
+    // a 2px lift to rest on the bar (not a second TASKBAR_HEIGHT offset).
     let positioned = Column::new()
         .push(Space::with_height(Length::Fill))
         .push(Row::new().push(menu).push(Space::with_width(Length::Fill)))
-        .push(Space::with_height(Length::Fixed(metrics::TASKBAR_HEIGHT as f32 + 2.0)));
+        .push(Space::with_height(Length::Fixed(2.0)));
 
     mouse_area(container(positioned).padding(pad(0.0, 0.0, 0.0, 2.0)))
         .on_press(Message::Close)
