@@ -832,7 +832,7 @@ fn appearance_tab(state: &Display) -> Element<'_, Message> {
                 .push(label("Icon set:"))
                 .push(pick_list(IconSet::ALL.to_vec(), Some(state.icon_set), Message::SetIconSet).style(mde_ui::sunken_picklist).text_size(metrics::UI_PX)),
         )
-        .push(label("Changing the icon set restarts the shell so the taskbar and apps adopt it. The colour scheme rewrites the labwc theme; the mde shell adopts it on next launch."));
+        .push(label("Each icon set pairs with a matching shell colour theme (Windows 2000 / BeOS). Changing it restarts the shell so the taskbar and apps adopt both. The Scheme above rewrites the labwc window-frame colours."));
 
     Column::new()
         .spacing(12.0)

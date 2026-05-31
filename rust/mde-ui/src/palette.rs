@@ -64,7 +64,44 @@ pub const LOGO_GREEN: Rgb = (0x6f, 0xb1, 0x2e);
 pub const LOGO_BLUE: Rgb = (0x2a, 0x7d, 0xe1);
 pub const LOGO_YELLOW: Rgb = (0xf2, 0xc4, 0x1d);
 
-/// Convert a palette [`Rgb`] into an `iced::Color`.
+// --- Runtime theme switch --------------------------------------------------
+// The palette constants above are the canonical Win2000 role keys. A second
+// theme (BeOS, paired with the Haiku icon set) is applied by remapping those
+// role colors at the `color()` edge — so no call site changes and every surface
+// retints together. The active shell binary calls [`use_beos`] at startup from
+// the persisted icon set.
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static BEOS: AtomicBool = AtomicBool::new(false);
+
+/// Select the BeOS color theme (true) or the Windows 2000 default (false).
+pub fn use_beos(on: bool) {
+    BEOS.store(on, Ordering::Relaxed);
+}
+
+/// Whether the BeOS theme is active.
+pub fn is_beos() -> bool {
+    BEOS.load(Ordering::Relaxed)
+}
+
+/// Map a Win2000 role color to its BeOS equivalent (light-gray panels, softer
+/// bevels, a blue selection; white/black pass through). Roles that share a
+/// Win2000 value share the BeOS value — they're the same surface concept.
+fn beos(rgb: Rgb) -> Rgb {
+    match rgb {
+        (0xd4, 0xd0, 0xc8) => (0xd8, 0xd8, 0xd8), // panel / menu / button face
+        (0xdf, 0xdf, 0xdf) => (0xec, 0xec, 0xec), // inner bevel light
+        (0x80, 0x80, 0x80) => (0x8c, 0x8c, 0x8c), // bevel shadow / disabled / inactive
+        (0x40, 0x40, 0x40) => (0x55, 0x55, 0x55), // dark bevel
+        (0x0a, 0x24, 0x6a) => (0x33, 0x55, 0x9c), // selection / accent (BeOS blue)
+        (0x3a, 0x6e, 0xa5) => (0x33, 0x66, 0x98), // desktop
+        (0x1d, 0x5c, 0xa8) => (0x46, 0x7a, 0xbe), // web-view info band
+        other => other,                            // white, black, brand art, etc.
+    }
+}
+
+/// Convert a palette [`Rgb`] into an `iced::Color`, applying the active theme.
 pub fn color(rgb: Rgb) -> iced::Color {
+    let rgb = if is_beos() { beos(rgb) } else { rgb };
     iced::Color::from_rgb8(rgb.0, rgb.1, rgb.2)
 }

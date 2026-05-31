@@ -64,6 +64,11 @@ COMMANDS:
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
 
+    // Pair the shell color theme with the chosen icon set: the Haiku icons bring
+    // the BeOS palette; Windows 2000 icons keep the Win2000 palette. Set once,
+    // up front, so every subcommand's UI renders in the right theme.
+    mde_ui::palette::use_beos(state::load().icon_set == "haiku");
+
     // Resolve the subcommand from argv[0] basename if it looks like `mde-foo`.
     let argv0 = args
         .first()
