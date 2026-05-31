@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=MDE-Retro
+Comment=Windows 2000 desktop shell (sway + mde)
+Exec=sway
+Type=Application

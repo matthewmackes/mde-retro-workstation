@@ -1,0 +1,50 @@
+# MDE-Retro — Windows 2000 desktop shell for sway (native Rust).
+#
+# Installed to /etc/skel/.config/sway/config by `mde setup`. The mde shell
+# (mde panel / menu / files / control-panel / system-properties) replaces the
+# old Waybar + wofi + script layer. This is the SKEL/cutover config — review it
+# before flipping a live session to it.
+set $mod Mod4
+
+### Desktop + Windows 2000 window decorations #################################
+output * bg #3a6ea5 solid_color
+default_border normal 2
+title_align left
+font pango:Tahoma, Droid Sans Bold 8
+# GetSysColor: active title navy #0a246a, inactive gray #808080, frame #d4d0c8.
+# (sway draws a solid title color; the navy→blue caption gradient is the
+# documented trade — see rust/ACCURACY.md §0.)
+client.focused          #0a246a #0a246a #ffffff #0a246a #0a246a
+client.focused_inactive #808080 #808080 #d4d0c8 #808080 #808080
+client.unfocused        #808080 #808080 #d4d0c8 #808080 #808080
+client.urgent           #800000 #800000 #ffffff #800000 #800000
+# Classic Windows feel: click to focus.
+focus_follows_mouse no
+seat * xcursor_theme Chicago95_Standard_Cursors 24
+
+### The MDE-Retro shell #######################################################
+exec_always mde panel
+# Each user fetches the (license-clean) icon/cursor/sound assets on first login
+# — decision #7: code-only package, art fetched at runtime.
+exec mde install --assets
+
+### Keys — Windows 2000 muscle memory #########################################
+bindsym Control+Escape exec mde menu       # Ctrl+Esc = Start (reliable)
+# NOTE: a bare Super (Win) key to open Start is unreliable as a sway bindsym
+# (fires on release, clashes with $mod combos) — tracked as a known gap.
+bindsym $mod+e exec mde files              # Win+E = Explorer
+bindsym $mod+r exec mde run                # Win+R = Run
+bindsym $mod+Pause exec mde system-properties
+bindsym $mod+d exec mde run
+bindsym Mod1+F4 kill                        # Alt+F4 = close
+bindsym Mod1+Tab focus next                # Alt+Tab
+bindsym Mod1+Shift+Tab focus prev
+
+# Volume / brightness (standard hardware keys)
+bindsym XF86AudioRaiseVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+
+bindsym XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+bindsym XF86AudioMute        exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+bindsym XF86MonBrightnessUp   exec brightnessctl set 5%+
+bindsym XF86MonBrightnessDown exec brightnessctl set 5%-
+
+include /etc/sway/config.d/*

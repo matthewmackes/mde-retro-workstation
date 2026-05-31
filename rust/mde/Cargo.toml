@@ -46,10 +46,16 @@ assets = [
     # these; no third-party asset bytes are shipped in the package.
     { source = "../../assets/install-assets.sh", dest = "/usr/share/mde/scripts/install-assets.sh", mode = "0755" },
     { source = "../../assets/install-chicago95.sh", dest = "/usr/share/mde/scripts/install-chicago95.sh", mode = "0755" },
+    # Skel: the rust-shell sway config `mde setup` deploys to /etc/skel + users
+    # (NOT the old script desktop — this launches the mde shell). Code/config
+    # only; no third-party asset bytes.
+    { source = "skel/.config/sway/config", dest = "/usr/share/mde/skel/.config/sway/config", mode = "0644" },
+    # The Wayland session entry the greeter lists.
+    { source = "skel/mde-retro.desktop", dest = "/usr/share/wayland-sessions/mde-retro.desktop", mode = "0644" },
 ]
 # Runtime packages the shell actually drives (the CORE set the installer needs +
 # the helpers the shell shells out to). Visual assets are fetched, not required.
-requires = { sway = "*", swaybg = "*", foot = "*", grim = "*", wmenu = "*", "xdg-utils" = "*", NetworkManager = "*", greetd = "*", tuigreet = "*", pipewire = "*", wireplumber = "*", polkit = "*", "google-droid-sans-fonts" = "*", "xkeyboard-config" = "*" }
+requires = { sway = "*", swaybg = "*", foot = "*", grim = "*", wmenu = "*", "xdg-utils" = "*", brightnessctl = "*", NetworkManager = "*", greetd = "*", tuigreet = "*", pipewire = "*", wireplumber = "*", polkit = "*", "google-droid-sans-fonts" = "*", "xkeyboard-config" = "*" }
 post_install_script = """
 for c in panel menu files control-panel run setup install logoff shutdown; do
     ln -sf /usr/bin/mde /usr/bin/mde-$c
