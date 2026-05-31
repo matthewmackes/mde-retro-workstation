@@ -21,6 +21,7 @@ mod install;
 mod installer;
 mod menu;
 mod panel;
+mod state;
 mod sway;
 mod sysinfo;
 mod system_properties;

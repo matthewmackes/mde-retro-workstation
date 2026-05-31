@@ -55,7 +55,15 @@ enum Message {
     Event(Event),
 }
 
-pub fn run(_args: &[String]) -> ExitCode {
+pub fn run(args: &[String]) -> ExitCode {
+    // Headless pinned-items management (the GUI pin action is the right-click
+    // context menu; this is the write path it — and scripts — drive).
+    match args.first().map(String::as_str) {
+        Some("--pin") => return pin(&args[1..]),
+        Some("--unpin") => return unpin(&args[1..]),
+        Some("--list-pinned") => return list_pinned(),
+        _ => {}
+    }
     match launch() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -63,6 +71,47 @@ pub fn run(_args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// `mde menu --pin <Name> <command...>` — pin an item to the Start menu top.
+fn pin(args: &[String]) -> ExitCode {
+    if args.len() < 2 {
+        eprintln!("usage: mde menu --pin <Name> <command...>");
+        return ExitCode::from(2);
+    }
+    let name = args[0].clone();
+    let command = args[1..].join(" ");
+    let mut state = crate::state::load();
+    if !state.pinned.iter().any(|p| p.name == name) {
+        state.pinned.push(crate::state::PinnedItem { name, command });
+        if let Err(e) = crate::state::save(&state) {
+            eprintln!("mde menu: could not save pins: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+/// `mde menu --unpin <Name>` — remove a pinned item by name.
+fn unpin(args: &[String]) -> ExitCode {
+    let Some(name) = args.first() else {
+        eprintln!("usage: mde menu --unpin <Name>");
+        return ExitCode::from(2);
+    };
+    let mut state = crate::state::load();
+    state.pinned.retain(|p| &p.name != name);
+    if let Err(e) = crate::state::save(&state) {
+        eprintln!("mde menu: could not save pins: {e}");
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+fn list_pinned() -> ExitCode {
+    for p in crate::state::load().pinned {
+        println!("{}\t{}", p.name, p.command);
+    }
+    ExitCode::SUCCESS
 }
 
 fn launch() -> Result<(), iced_layershell::Error> {
@@ -103,7 +152,17 @@ fn subscription(_: &Menu) -> iced::Subscription<Message> {
 // --- menu tree -------------------------------------------------------------
 
 fn build_root() -> Vec<Node> {
-    vec![
+    let mut root = Vec::new();
+    // Pinned items sit at the very top, above their own separator (Win2000's
+    // [Pinned items] band), loaded from ~/.config/mde/menu.json.
+    let pinned = crate::state::load().pinned;
+    if !pinned.is_empty() {
+        for item in &pinned {
+            root.push(Node::Leaf(item.name.clone(), Act::Cmd(item.command.clone(), false)));
+        }
+        root.push(Node::Sep);
+    }
+    root.extend([
         Node::Leaf("Windows Update".into(), Act::Cmd("dnfdragora-updater".into(), false)),
         Node::Sep,
         Node::Sub("Programs".into(), programs_tree()),
@@ -115,7 +174,8 @@ fn build_root() -> Vec<Node> {
         Node::Sep,
         Node::Leaf("Log Off...".into(), Act::LogOff),
         Node::Leaf("Shut Down...".into(), Act::ShutDown),
-    ]
+    ]);
+    root
 }
 
 fn programs_tree() -> Vec<Node> {
