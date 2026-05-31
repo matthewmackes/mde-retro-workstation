@@ -196,24 +196,7 @@ bindsym Print exec grim
 # Install the upgrade with:  sudo dnf install waybar wofi
 exec_always ~/.config/sway/scripts/start-mde-panel.sh
 
-bar {
-    mode invisible
-    position bottom
-    font pango:Tahoma Bold 10
-    # The "system tray" clock on the right, Win95-style ( 2:34 PM ).
-    status_command while date +'  %a %b %e    %l:%M %p  '; do sleep 10; done
-
-    colors {
-        background #d4d0c8
-        statusline #000000
-        separator  #808080
-        #                  border   background  text
-        focused_workspace  #0a246a  #0a246a     #ffffff
-        active_workspace   #d4d0c8  #808080     #ffffff
-        inactive_workspace #d4d0c8  #d4d0c8     #000000
-        urgent_workspace   #800000  #800000     #ffffff
-    }
-}
+# (taskbar is `mde panel` via start-mde-panel.sh; no swaybar)
 
 # ============================================================================
 #  Tips (not executed):
