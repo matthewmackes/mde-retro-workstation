@@ -213,7 +213,9 @@ fn shutdown_update(state: &mut Shutdown, m: M) -> Task<M> {
 
 fn shutdown_view(state: &Shutdown) -> Element<'_, M> {
     let choices = vec![Choice::LogOff, Choice::ShutDown, Choice::Restart, Choice::StandBy];
-    let drop = pick_list(choices, Some(state.sel.clone()), M::Pick).text_size(metrics::UI_PX);
+    let drop = pick_list(choices, Some(state.sel.clone()), M::Pick)
+        .text_size(metrics::UI_PX)
+        .style(mde_ui::sunken_picklist);
 
     let buttons = Row::new()
         .spacing(8.0)

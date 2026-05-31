@@ -13,10 +13,27 @@ pub use button::{button, Button};
 pub use frame::BevelFrame;
 
 use iced::advanced::renderer;
-use iced::widget::text_input;
+use iced::widget::{pick_list, text_input};
 use iced::{Background, Border, Color, Rectangle, Shadow};
 
 use crate::palette;
+
+/// The Win2000 sunken-white dropdown (closed `pick_list` control): `COLOR_WINDOW`
+/// fill, a recessed 1px edge, navy selection text. Pass to
+/// `pick_list(...).style(mde_ui::sunken_picklist)`.
+pub fn sunken_picklist(_theme: &iced::Theme, _status: pick_list::Status) -> pick_list::Style {
+    pick_list::Style {
+        text_color: palette::color(palette::WINDOW_TEXT),
+        placeholder_color: palette::color(palette::GRAY_TEXT),
+        handle_color: palette::color(palette::WINDOW_TEXT),
+        background: Background::Color(palette::color(palette::WINDOW)),
+        border: Border {
+            color: palette::color(palette::BUTTON_SHADOW),
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+    }
+}
 
 /// The Win2000 sunken-white text field: `COLOR_WINDOW` fill with a recessed 1px
 /// edge. Pass to `text_input(...).style(mde_ui::sunken_field)` so form fields
