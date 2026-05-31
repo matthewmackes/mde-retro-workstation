@@ -10,12 +10,12 @@
 use std::collections::HashSet;
 use std::process::{exit, ExitCode};
 
-use iced::widget::{container, scrollable, text, Column, Row, Space};
+use iced::widget::{checkbox, container, radio, scrollable, text, Column, Row, Space};
 use iced::{Background, Border, Element, Length, Padding, Shadow, Task};
 
-use mde_ui::{button, frame, metrics, palette};
+use mde_ui::{button, frame, group_box, metrics, palette};
 
-use crate::sysinfo::{self, DeviceCategory, General};
+use crate::sysinfo::{self, Advanced, AutoMode, DeviceCategory, General};
 
 const TABS: &[&str] = &[
     "General",
@@ -31,10 +31,15 @@ struct SysProps {
     current: usize,
     general: General,
     devices: Vec<DeviceCategory>,
+    advanced: Advanced,
+    /// Local (unsaved) selections on the interactive tabs; initialised from the
+    /// live state once the scan lands. Apply persists them via a privileged tool.
+    auto_sel: AutoMode,
+    remote_on: bool,
     /// Expanded category indices in the Device Manager tree.
     expanded: HashSet<usize>,
-    /// False until the (slow) device scan finishes, so the Hardware tab can show
-    /// "Scanning…" instead of an empty tree that looks like "no devices".
+    /// False until the (slow) scan finishes, so the data tabs can show "Loading…"
+    /// instead of empty/false state that looks like real data.
     scanned: bool,
 }
 
@@ -42,8 +47,16 @@ struct SysProps {
 enum Message {
     SelectTab(usize),
     ToggleCategory(usize),
-    DevicesLoaded(Vec<DeviceCategory>),
+    Loaded(Vec<DeviceCategory>, Advanced),
+    SetAuto(AutoMode),
+    ToggleRemote(bool),
+    Launch(String),
     Close,
+}
+
+/// Run a shell command detached (the Apply / launch buttons on the data tabs).
+fn spawn(cmd: &str) {
+    let _ = std::process::Command::new("sh").arg("-c").arg(cmd).spawn();
 }
 
 /// Dispatch: headless flags print; otherwise open the GUI dialog.
@@ -60,17 +73,24 @@ pub fn run(args: &[String]) -> ExitCode {
         .default_font(mde_ui::font::UI)
         .run_with(|| {
             // The General facts are cheap (/proc + os-release), so load them now;
-            // the device scan (lspci/lsblk/lsusb, ~2s) would block the first
-            // paint, so kick it off as a task and let the window appear at once.
+            // the device scan (lspci/lsblk/lsusb) + the advanced probes would
+            // block the first paint, so fetch them in a task and let the window
+            // appear at once.
             (
                 SysProps {
                     current: 0,
                     general: sysinfo::general(),
                     devices: Vec::new(),
+                    advanced: Advanced::default(),
+                    auto_sel: AutoMode::Off,
+                    remote_on: false,
                     expanded: HashSet::new(),
                     scanned: false,
                 },
-                Task::perform(async { sysinfo::devices() }, Message::DevicesLoaded),
+                Task::perform(
+                    async { (sysinfo::devices(), sysinfo::advanced()) },
+                    |(d, a)| Message::Loaded(d, a),
+                ),
             )
         });
     match r {
@@ -87,12 +107,19 @@ fn update(state: &mut SysProps, message: Message) -> Task<Message> {
                 state.expanded.insert(i);
             }
         }
-        Message::DevicesLoaded(devs) => {
-            // Start with every category expanded (an informative first view).
+        Message::Loaded(devs, adv) => {
+            // Start with every category expanded (an informative first view),
+            // and seed the interactive tabs from the live state.
             state.expanded = (0..devs.len()).collect();
             state.devices = devs;
+            state.auto_sel = adv.auto_updates.clone();
+            state.remote_on = adv.remote_running;
+            state.advanced = adv;
             state.scanned = true;
         }
+        Message::SetAuto(mode) => state.auto_sel = mode,
+        Message::ToggleRemote(on) => state.remote_on = on,
+        Message::Launch(cmd) => spawn(&cmd),
         Message::Close => exit(0),
     }
     Task::none()
@@ -216,8 +243,119 @@ fn hardware_tab(state: &SysProps) -> Element<'static, Message> {
         .into()
 }
 
-fn placeholder(body: &'static str) -> Element<'static, Message> {
-    Column::new().push(text(body).size(metrics::UI_PX)).into()
+fn loading() -> Element<'static, Message> {
+    Column::new().push(text("Loading\u{2026}").size(metrics::UI_PX)).into()
+}
+
+/// A small raised button that runs `cmd` when pressed.
+fn launch_button(label: &str, cmd: String) -> Element<'static, Message> {
+    button(text(label.to_string()).size(metrics::UI_PX))
+        .on_press(Message::Launch(cmd))
+        .padding(pad(2.0, 10.0, 2.0, 10.0))
+        .into()
+}
+
+fn advanced_tab(state: &SysProps) -> Element<'static, Message> {
+    if !state.scanned {
+        return loading();
+    }
+    let a = &state.advanced;
+    let perf = Column::new()
+        .spacing(6.0)
+        .push(field("Swappiness", a.swappiness.clone()))
+        .push(field("zram device", a.zram.clone()));
+    let boot = Column::new()
+        .spacing(6.0)
+        .push(field("Default boot entry", a.grub_default.clone()))
+        .push(field("Boot menu timeout", format!("{} s", a.grub_timeout)));
+    Column::new()
+        .spacing(10.0)
+        .push(group_box("Performance", perf))
+        .push(group_box("Startup and Recovery", boot))
+        .push(field("Environment variables", format!("{} set", a.env_count)))
+        .push(
+            Row::new().push(Space::with_width(Length::Fill)).push(launch_button(
+                "Environment Variables\u{2026}",
+                "foot sh -c 'env | sort | less'".to_string(),
+            )),
+        )
+        .into()
+}
+
+fn restore_tab(state: &SysProps) -> Element<'static, Message> {
+    if !state.scanned {
+        return loading();
+    }
+    let installed = state.advanced.timeshift_installed;
+    // A read-only checkbox (no on_toggle ⇒ disabled) reflecting real state.
+    let status = checkbox("Timeshift snapshot tool is installed", installed).style(mde_ui::checkbox_style);
+    let body = Column::new()
+        .spacing(8.0)
+        .push(text("System Restore rolls the system back using Timeshift snapshots.").size(metrics::UI_PX))
+        .push(status)
+        .push(
+            Row::new().push(Space::with_width(Length::Fill)).push(launch_button(
+                if installed { "Open Timeshift\u{2026}" } else { "Install Timeshift\u{2026}" },
+                if installed {
+                    "timeshift-launcher".to_string()
+                } else {
+                    "pkexec dnf install -y timeshift".to_string()
+                },
+            )),
+        );
+    Column::new().push(group_box("System Restore", body)).into()
+}
+
+fn updates_tab(state: &SysProps) -> Element<'static, Message> {
+    if !state.scanned {
+        return loading();
+    }
+    let opt = |label: &str, mode: AutoMode| {
+        radio(label.to_string(), mode, Some(state.auto_sel), Message::SetAuto).style(mde_ui::radio_style).size(13.0).text_size(metrics::UI_PX)
+    };
+    let group = Column::new()
+        .spacing(6.0)
+        .push(opt("Turn off automatic updates", AutoMode::Off))
+        .push(opt("Download updates automatically, notify before installing", AutoMode::DownloadOnly))
+        .push(opt("Install updates automatically", AutoMode::Install));
+    // Apply via the dnf-automatic timer (privileged; the radios pick the posture).
+    let apply_cmd = match state.auto_sel {
+        AutoMode::Off => "pkexec systemctl disable --now dnf-automatic.timer".to_string(),
+        _ => "pkexec systemctl enable --now dnf-automatic.timer".to_string(),
+    };
+    Column::new()
+        .spacing(10.0)
+        .push(group_box("Keep my computer up to date", group))
+        .push(Row::new().push(Space::with_width(Length::Fill)).push(launch_button("Apply", apply_cmd)))
+        .into()
+}
+
+fn remote_tab(state: &SysProps) -> Element<'static, Message> {
+    if !state.scanned {
+        return loading();
+    }
+    let avail = state.advanced.remote_available;
+    let check = checkbox("Allow remote connections to this computer", state.remote_on)
+        .on_toggle(Message::ToggleRemote)
+        .style(mde_ui::checkbox_style);
+    let apply_cmd = if state.remote_on {
+        "wayvnc 0.0.0.0 5900".to_string()
+    } else {
+        "pkill -x wayvnc".to_string()
+    };
+    let body = Column::new()
+        .spacing(8.0)
+        .push(text("Remote Desktop lets you connect to this computer over VNC (wayvnc).").size(metrics::UI_PX))
+        .push(check)
+        .push(field("Listen address", "0.0.0.0:5900".to_string()))
+        .push(
+            Row::new().push(Space::with_width(Length::Fill)).push(if avail {
+                launch_button("Apply", apply_cmd)
+            } else {
+                launch_button("Install wayvnc\u{2026}", "pkexec dnf install -y wayvnc".to_string())
+            }),
+        );
+    Column::new().push(group_box("Remote Desktop", body)).into()
 }
 
 fn tab_content(state: &SysProps) -> Element<'static, Message> {
@@ -225,15 +363,11 @@ fn tab_content(state: &SysProps) -> Element<'static, Message> {
         0 => general_tab(&state.general),
         1 => computer_name_tab(&state.general),
         2 => hardware_tab(state),
-        3 => placeholder(
-            "Advanced: Environment Variables, Performance (zram/swappiness), and Startup & Recovery (default boot entry, GRUB timeout).",
-        ),
-        4 => placeholder("System Restore: enable and create Timeshift snapshots."),
-        5 => placeholder("Automatic Updates: configure the dnf-automatic timer."),
-        6 => placeholder(
-            "Remote: Remote Desktop via wayvnc (allow users to connect, address host:5900).",
-        ),
-        _ => placeholder(""),
+        3 => advanced_tab(state),
+        4 => restore_tab(state),
+        5 => updates_tab(state),
+        6 => remote_tab(state),
+        _ => loading(),
     }
 }
 

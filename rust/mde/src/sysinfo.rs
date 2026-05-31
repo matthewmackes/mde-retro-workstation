@@ -52,6 +52,73 @@ pub fn general() -> General {
     }
 }
 
+/// Automatic-updates posture, read from the dnf-automatic timer + config.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AutoMode {
+    #[default]
+    Off,
+    DownloadOnly,
+    Install,
+}
+
+/// Live facts for the Advanced / System Restore / Automatic Updates / Remote
+/// tabs. Read-only — the tabs display real system state (the Win2000 layout)
+/// rather than pretending to change settings a preview shouldn't touch.
+#[derive(Debug, Clone, Default)]
+pub struct Advanced {
+    pub swappiness: String,
+    pub zram: String,
+    pub grub_default: String,
+    pub grub_timeout: String,
+    pub env_count: usize,
+    pub auto_updates: AutoMode,
+    pub timeshift_installed: bool,
+    pub remote_available: bool,
+    pub remote_running: bool,
+}
+
+/// Whether a binary is resolvable on `$PATH`.
+fn on_path(bin: &str) -> bool {
+    cmd_line("sh", &["-c", &format!("command -v {bin}")]).map(|s| !s.is_empty()).unwrap_or(false)
+}
+
+/// Collect the Advanced/Updates/Remote/Restore facts (best-effort).
+pub fn advanced() -> Advanced {
+    let read = |p: &str| std::fs::read_to_string(p).unwrap_or_default().trim().to_string();
+    let grub = std::fs::read_to_string("/etc/default/grub").unwrap_or_default();
+    let grub_val = |key: &str| {
+        grub.lines()
+            .find_map(|l| l.trim().strip_prefix(key).map(|v| v.trim_matches(['=', '"', ' ']).to_string()))
+            .unwrap_or_default()
+    };
+    let zram = cmd_line("sh", &["-c", "zramctl --noheadings --output DISKSIZE 2>/dev/null | head -1"])
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "none".to_string());
+    let timer_enabled = cmd_line("systemctl", &["is-enabled", "dnf-automatic.timer"])
+        .map(|s| s.trim() == "enabled")
+        .unwrap_or(false);
+    let applies = std::fs::read_to_string("/etc/dnf/automatic.conf")
+        .unwrap_or_default()
+        .lines()
+        .any(|l| l.replace(' ', "").starts_with("apply_updates=yes"));
+    let auto_updates = match (timer_enabled, applies) {
+        (false, _) => AutoMode::Off,
+        (true, false) => AutoMode::DownloadOnly,
+        (true, true) => AutoMode::Install,
+    };
+    Advanced {
+        swappiness: read("/proc/sys/vm/swappiness"),
+        zram,
+        grub_default: grub_val("GRUB_DEFAULT"),
+        grub_timeout: grub_val("GRUB_TIMEOUT"),
+        env_count: std::env::vars().count(),
+        auto_updates,
+        timeshift_installed: on_path("timeshift") || on_path("timeshift-launcher"),
+        remote_available: on_path("wayvnc"),
+        remote_running: cmd_line("pgrep", &["-x", "wayvnc"]).map(|s| !s.trim().is_empty()).unwrap_or(false),
+    }
+}
+
 /// A Device Manager category and the devices under it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceCategory {
