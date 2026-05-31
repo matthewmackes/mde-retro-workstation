@@ -40,6 +40,7 @@ COMMANDS:
     files [PATH]     Explorer-style file manager
     control-panel    Windows 2000 Control Panel
     run              Run dialog (type a command to launch)
+    properties NAME TARGET   Launcher/file Properties dialog
     system-properties [--info|--devices]   System facts / Device Manager data
     setup [--tui|--gui|--dry-run]   Install/configure MDE-Retro
     install [--assets]   Fetch Chicago95 + Win2k assets (first run)
@@ -73,6 +74,11 @@ fn main() -> ExitCode {
         "files" => files::run(rest),
         "control-panel" => control_panel::run(rest),
         "run" => dialogs::run_dialog(),
+        "properties" => {
+            let name = rest.first().cloned().unwrap_or_default();
+            let target = rest.get(1).cloned().unwrap_or_default();
+            dialogs::properties(name, target)
+        }
         "system-properties" => system_properties::run(rest),
         "logoff" => dialogs::logoff(),
         "shutdown" => dialogs::shutdown(),

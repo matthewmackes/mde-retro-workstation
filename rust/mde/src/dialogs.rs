@@ -326,3 +326,86 @@ fn run_view(state: &Run) -> Element<'_, RunMsg> {
 
     silver(body)
 }
+
+// ---------------- Properties ----------------
+
+struct Properties {
+    name: String,
+    target: String,
+}
+
+#[derive(Debug, Clone)]
+enum PropMsg {
+    Close,
+    Event(Event),
+}
+
+/// `mde properties <Name> <command>` — a Win2000 launcher Properties dialog
+/// (General tab). Invoked by the Start-menu / launcher right-click context menu.
+pub fn properties(name: String, target: String) -> ExitCode {
+    let r = iced::application(
+        |s: &Properties| format!("{} Properties", s.name),
+        prop_update,
+        prop_view,
+    )
+    .window_size(iced::Size::new(360.0, 240.0))
+    .resizable(false)
+    .theme(|_| iced::Theme::Light)
+    .subscription(|_: &Properties| event::listen().map(PropMsg::Event))
+    .font(mde_ui::font::REGULAR_BYTES)
+    .font(mde_ui::font::BOLD_BYTES)
+    .default_font(mde_ui::font::UI)
+    .run_with(move || (Properties { name, target }, Task::none()));
+    match r {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(_) => ExitCode::FAILURE,
+    }
+}
+
+fn prop_update(_: &mut Properties, m: PropMsg) -> Task<PropMsg> {
+    match m {
+        PropMsg::Close => exit(0),
+        PropMsg::Event(e) if is_enter(&e) || is_escape(&e) => exit(0),
+        PropMsg::Event(_) => Task::none(),
+    }
+}
+
+fn prop_field<'a>(label: &'a str, value: String) -> Element<'a, PropMsg> {
+    Row::new()
+        .spacing(8.0)
+        .push(text(label).size(metrics::UI_PX).font(mde_ui::font::UI_BOLD).width(Length::Fixed(64.0)))
+        .push(text(value).size(metrics::UI_PX))
+        .into()
+}
+
+fn prop_view(state: &Properties) -> Element<'_, PropMsg> {
+    let kind = if state.target.contains('/') || !state.target.is_empty() {
+        "Application"
+    } else {
+        "Item"
+    };
+    let body = Column::new()
+        .spacing(10.0)
+        .push(text(format!("{} — General", state.name)).size(metrics::UI_PX).font(mde_ui::font::UI_BOLD))
+        .push(prop_field("Name:", state.name.clone()))
+        .push(prop_field("Type:", kind.to_string()))
+        .push(prop_field("Target:", state.target.clone()))
+        .push(Space::new(Length::Fill, Length::Fill))
+        .push(
+            Row::new()
+                .spacing(8.0)
+                .push(Space::with_width(Length::Fill))
+                .push(
+                    button(text("OK").size(metrics::UI_PX))
+                        .on_press(PropMsg::Close)
+                        .default(true)
+                        .width(Length::Fixed(80.0)),
+                )
+                .push(
+                    button(text("Cancel").size(metrics::UI_PX))
+                        .on_press(PropMsg::Close)
+                        .width(Length::Fixed(80.0)),
+                ),
+        );
+    silver(body)
+}
