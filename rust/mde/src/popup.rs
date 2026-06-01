@@ -95,7 +95,14 @@ pub fn run(args: &[String]) -> ExitCode {
 fn launch(kind: String) -> Result<(), iced_layershell::Error> {
     application(namespace, update, view)
         .style(style)
-        .subscription(|_: &Popup| event::listen().map(Message::Event))
+        // Keyboard-only: the popup ignores mouse events in update, so filtering
+        // avoids a view rebuild on every mouse motion over the overlay.
+        .subscription(|_: &Popup| {
+            event::listen_with(|event, _status, _window| match event {
+                iced::Event::Keyboard(_) => Some(Message::Event(event)),
+                _ => None,
+            })
+        })
         .font(mde_ui::font::REGULAR_BYTES)
         .font(mde_ui::font::BOLD_BYTES).font(mde_ui::font::PLEX_REGULAR_BYTES).font(mde_ui::font::PLEX_BOLD_BYTES)
         .default_font(mde_ui::font::ui())

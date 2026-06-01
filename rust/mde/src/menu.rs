@@ -203,7 +203,13 @@ fn style(_: &Menu, _: &iced::Theme) -> Appearance {
 }
 
 fn subscription(_: &Menu) -> iced::Subscription<Message> {
-    event::listen().map(Message::Event)
+    // The menu only acts on keyboard events (clicks go through the widget tree).
+    // Subscribing to *all* events rebuilt the whole menu on every mouse motion;
+    // filter to keyboard so motion over the menu doesn't churn update + view.
+    event::listen_with(|event, _status, _window| match event {
+        Event::Keyboard(_) => Some(Message::Event(event)),
+        _ => None,
+    })
 }
 
 // --- menu tree -------------------------------------------------------------
