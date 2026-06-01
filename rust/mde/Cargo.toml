@@ -93,13 +93,13 @@ requires = { labwc = "*", "wlr-randr" = "*", wlopm = "*", swaybg = "*", swayidle
 # removed without removing mde.
 recommends = { swayosd = "*", "blivet-gui" = "*", btop = "*", cockpit = "*", fastfetch = "*", "firewall-config" = "*", flatpak = "*", glances = "*", "gnome-abrt" = "*", "gnome-disk-utility" = "*", gparted = "*", htop = "*", "im-chooser" = "*", iotop = "*", iperf3 = "*", lm_sensors = "*", lynis = "*", mediawriter = "*", ncdu = "*", nmap = "*", nvtop = "*", powertop = "*", seahorse = "*", "setroubleshoot-server" = "*", smartmontools = "*", "system-config-language" = "*", timeshift = "*", wireshark = "*" }
 post_install_script = """
-for c in panel menu popup files control-panel system-properties run properties setup install logoff shutdown; do
+for c in panel menu popup files control-panel system-properties about run properties setup install logoff shutdown; do
     ln -sf /usr/bin/mde /usr/bin/mde-$c
 done
 fc-cache -f /usr/share/fonts/mde-ibm-plex-sans >/dev/null 2>&1 || true
 """
 post_uninstall_script = """
-for c in panel menu popup files control-panel system-properties run properties setup install logoff shutdown; do
+for c in panel menu popup files control-panel system-properties about run properties setup install logoff shutdown; do
     rm -f /usr/bin/mde-$c
 done
 """

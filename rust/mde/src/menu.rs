@@ -226,6 +226,7 @@ fn build_root() -> Vec<Node> {
         Node::Sub("Search".into(), search_tree()),
         Node::Sub("System Tools".into(), system_tools_tree()),
         Node::Leaf("Help".into(), Act::Help),
+        Node::Leaf("About MDE Retro Workstation".into(), Act::Mde("about")),
         Node::Leaf("Run...".into(), Act::Run),
         Node::Sep,
         Node::Leaf("Log Off...".into(), Act::LogOff),

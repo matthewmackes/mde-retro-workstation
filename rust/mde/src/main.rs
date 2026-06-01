@@ -11,6 +11,7 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 
+mod about;
 mod apps;
 mod control_panel;
 mod dialogs;
@@ -97,6 +98,7 @@ fn main() -> ExitCode {
             let target = rest.get(1).cloned().unwrap_or_default();
             dialogs::properties(name, target)
         }
+        "about" => about::run(rest),
         "system-properties" => system_properties::run(rest),
         "taskbar-properties" => taskbar_properties::run(rest),
         "__wlr-list" => {
