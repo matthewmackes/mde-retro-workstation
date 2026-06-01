@@ -36,9 +36,11 @@ Remaining (FINISH unless noted):
   close/maximize is labwc's by the compositor boundary, so the taskbar never calls
   them); `outputs.rs` `Output::make` FINISHED — folded into `Output::label()` so the
   Display dropdown shows the full EDID identity ("Dell U2419H (DP-1)"), unit-pinned.
-- [ ] **§1 docs** Deeper prose pass: the reorg fixed each doc's headline claims +
-  added status banners, but some body paragraphs in `PREVIEW.md`/`ACCURACY.md`
-  still narrate the pre-cutover/Win2000-only world. Full rewrite when convenient.
+- [✓] **§1 docs** Deeper prose pass on `PREVIEW.md`/`ACCURACY.md`: fixed the live
+  boundary (mde↔labwc, themerc-sourced titlebar colors; "live sway IPC" →
+  wlr-foreign-toplevel), retired stale "gaps" now shipped (tray, taskbar/Start
+  popups, checkbox/radio/tab/group-box widgets), and reframed the session cutover
+  as labwc/done. Legitimate harness `sway` references (headless wlroots driver) kept.
 
 ## Backlog
 

@@ -5,7 +5,8 @@ on **labwc** and defaulting to the **IBM Carbon** theme (Windows 2000 selectable
 Every component is screenshot-verified in an **isolated headless sway** (the nested
 test harness still uses sway because it works on any wlroots compositor — that's a
 test-rig detail, not the runtime). The labwc cutover is **done**; this is no longer
-a "preview". The note below kept a list of pre-cutover gaps that are now closed.
+a "preview" — see "Shipped since the early preview" and "Still open" below for the
+current state.
 
 > **Note:** the capture harness still nests *sway* purely because `wlr.rs`'s
 > foreign-toplevel client works on any wlroots compositor; the shipped session is
@@ -23,17 +24,17 @@ cd rust
 ```
 
 Screenshots live in `tests/accuracy/captures/gallery/` (one PNG per component
-plus `_contact-sheet.png`). Nothing in `preview.sh` edits your sway config or
-installs packages.
+plus `_contact-sheet.png`). Nothing in `preview.sh` edits your compositor config
+or installs packages.
 
 ## What's in the preview
 
-One multiplexed binary, `mde <subcommand>`, sharing the `mde-ui` Win2000 look
-library (palette + metrics + 3D-bevel widgets):
+One multiplexed binary, `mde <subcommand>`, sharing the `mde-ui` look library
+(palette + metrics + 3D-bevel widgets; Carbon default, Win2000/BeOS selectable):
 
 | Component | `mde` command | State |
 |-----------|---------------|-------|
-| Taskbar (Start, Quick Launch, window buttons, clock) | `panel` | layer-shell, live sway IPC |
+| Taskbar (Start, Quick Launch, window buttons, tray, clock) | `panel` | layer-shell; window list via wlr-foreign-toplevel; SNI tray |
 | Start menu (pinned, Programs/Settings/Search/System Tools, Run, Log Off, Shut Down) | `menu` | layer-shell, keyboard nav, context menu |
 | Explorer file manager (menubar, toolbar, address bar, web-view info band + watermark, folder tree, sortable details list, icons, right-click + Edit-menu file ops, keyboard nav) | `files` | full |
 | Control Panel (categorized applets, web-view info band, launch + install-missing) | `control-panel` | full |
@@ -53,54 +54,56 @@ Two layers, both gated by `cargo test`:
 Reference targets (eyeball, never SSIM'd against foreign-DPI captures):
 `tests/accuracy/refs/win2000-{desktop-full,explorer,openfile-dialog,menu}.png`.
 
-`cargo test` (2026-05-30): **green** — 12 mde unit + 15 mde-ui checklist
+`cargo test` (2026-06-01): **green** — 26 mde unit + 16 mde-ui checklist
 (palette + SM_* metrics) + 1 accuracy + 1 lib, 0 failed. Every component
 was also captured in an isolated headless sway and eyeballed against the
 references (`./preview.sh gallery`); the desktop background reads pixel-exact
 `#3a6ea5`.
 
-## Known gaps in the preview
+## Shipped since the early preview
 
-- **Icons** now render (folders/files in Explorer, applets in Control Panel,
-  Start-menu entries, the info-band watermark) by resolving the installed
-  Win2k → Chicago95 → hicolor theme. Misses fall back to blank space. The
-  *art* still depends on the asset fetch, so on a machine without those
-  themes installed the shell falls back to text-and-bevel cleanly.
-- **System tray** (StatusNotifierItem) and the **taskbar right-click menu**
-  are not present (see below).
+Things the old draft listed as gaps that are now live:
 
-## Still open (from a multi-agent audit of the branch)
+- **Icons** render (folders/files in Explorer, applets in Control Panel,
+  Start-menu entries, the info-band watermark) by resolving the embedded Carbon
+  SVGs → installed Win2k/Haiku → freedesktop theme. Misses fall back to blank
+  space (never tofu); the *art* still depends on the asset fetch, so a machine
+  without those themes falls back to text-and-bevel cleanly.
+- **System tray** (StatusNotifierItem over zbus) plus the native indicators
+  (volume / network / battery) — `tray.rs`, wired into the panel tick.
+- **Taskbar right-click menu** (Tile / Minimize all / Task Manager / Properties)
+  and the **Start-button right-click** menu (Open / Search / Properties) — both
+  on the dedicated `popup` layer-shell surface above the bar.
+- **Toolkit**: `checkbox_style`, `radio_style`, native `tab_strip`, and
+  `group_box` widgets all exist and are used by System Properties, Display, and
+  Taskbar Properties (no more button-faked tabs).
 
-A feature-completeness/accuracy audit (per-component finders + adversarial
-verifiers) confirmed the fixes above and flagged these as still open. None
-block reviewing the preview; ranked by value:
+## Still open
 
-- **System tray** (StatusNotifierItem/DBus) — a subsystem, not a render.
-- **Taskbar right-click menu** (Cascade/Tile/Task Manager/Properties) and the
-  **Start-button right-click** menu — need a separate popup surface above the
-  28px layer-shell bar.
-- **System Properties**: Advanced / System Restore / Automatic Updates / Remote
-  are labelled placeholders (General, Computer Name, Hardware are live).
+None of these block reviewing the shell; ranked by value:
+
+- **System Properties**: System Restore / Automatic Updates remain thin (General,
+  Computer Name, Hardware, Advanced, and the Remote toggle are live).
 - **Device Manager**: covers Processors/Display/Disks/USB; missing some standard
   Win2000 categories, and USB lists raw `lsusb` lines.
-- **Toolkit**: no checkbox / radio / native tab / progress-bar / group-box
-  widgets yet (System Properties fakes tabs with buttons; the GUI installer
-  hand-rolls its progress bar); the scrollbar lacks end-arrow buttons.
-- **Window buttons**: app icons not shown; refresh is a 1 Hz poll, not a sway
-  event subscription; right/middle-click close not wired.
+- **Toolkit**: no progress-bar widget yet (the GUI installer hand-rolls its bar);
+  the scrollbar lacks end-arrow buttons.
+- **Window buttons**: app icons not shown; refresh is a 1 Hz poll, not a
+  foreign-toplevel event subscription; middle-click close not wired (per-window
+  close/maximize is labwc's titlebar by the compositor boundary).
 - **Deliberately omitted** (would be dead controls, which the design refuses):
   the Run dialog's Browse… and the Shut Down dialog's Help button.
 
-## Not in this preview (deliberate, gated, or needs you present)
+## Not shipped here (deliberate, gated, or needs you present)
 
-- **The sway cutover** (`#9`): flipping `~/.config/sway/config` to launch the
-  Rust shell — disruptive to the live desktop, done with you present.
-- **The RPM cut** (`#13`): the last packaging step, after the platform is
-  signed off.
-- **Asset-bundling decision (open):** locked decision #7 says the RPM ships
-  CODE ONLY and `mde install --assets` *fetches* Chicago95+Win2k at first run;
-  `SPEC-installer.md` assumes assets are *bundled* offline. These conflict and
-  must be resolved before the RPM. Recommended: keep code-only fetch and have
-  `mde setup` call the fetch path (avoids redistributing GPL-3 / Win2k art).
-- **System tray** (StatusNotifierItem/DBus): a separate subsystem, not a render.
-- **Win-key → Start toggle:** edits the live sway config; belongs with the cutover.
+- **The session cutover:** the labwc compositor migration is done in-tree (the
+  window layer is wlr-foreign-toplevel, not sway IPC), and the shipped session is
+  `mde/skel/mde-retro.desktop`. Pointing your *live* login at it is still an
+  operator step done with you present — it replaces the running desktop.
+- **The RPM cut:** the last packaging step (`cargo-generate-rpm`, see
+  `skills/release`), operator-triggered after the platform is signed off.
+- **Asset bundling:** the RPM ships **code-only**; `mde install --assets` fetches
+  Chicago95 / Win2k / Haiku art from upstream at first run, so nothing GPL-3 /
+  trademark-encumbered is redistributed (see `assets/licenses/NOTICE.md`).
+- **Win-key → Start toggle:** a labwc keybind (`rc.xml`), not an mde concern; it
+  belongs with the session cutover.
