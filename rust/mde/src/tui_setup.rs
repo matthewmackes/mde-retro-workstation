@@ -91,6 +91,15 @@ fn is_root() -> bool {
         .unwrap_or(false)
 }
 
+/// True once branding has been applied — by the boot one-shot
+/// (mde-activate-branding.service) or a prior setup. install-branding.sh writes
+/// this marker on success; revert-branding.sh removes it. We use it to avoid
+/// re-running branding (a needless initramfs rebuild) and to keep LightDM as the
+/// display manager instead of flipping back to greetd.
+fn branding_active() -> bool {
+    std::path::Path::new("/var/lib/mde-branding/.activated").exists()
+}
+
 fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> ExitCode {
     loop {
         let _ = terminal.draw(|f| ui(f, app));
@@ -186,15 +195,28 @@ fn run_step(i: usize, dry_run: bool) -> Result<(), String> {
         4 => register_session(),
         5 => {
             run_status(Command::new("systemctl").args(["set-default", "graphical.target"]))?;
-            run_status(Command::new("systemctl").args(["enable", "--now", "greetd"]))
+            // If the boot one-shot already applied branding, LightDM is the login
+            // manager — don't flip back to greetd (that would undo it). Otherwise
+            // greetd is the base login until branding (step 6) switches it.
+            if branding_active() {
+                run_status(Command::new("systemctl").args(["enable", "lightdm"]))
+            } else {
+                run_status(Command::new("systemctl").args(["enable", "--now", "greetd"]))
+            }
         }
         6 => {
             // Rebrand the install as MDE Retro Workstation (os-release, Plymouth,
             // GRUB, console, fastfetch, wallpaper, LightDM login). Switches the
-            // display manager greetd -> LightDM, so it runs after step 5.
-            run_status(
-                Command::new("bash").arg("/usr/share/mde/branding/scripts/install-branding.sh"),
-            )
+            // display manager greetd -> LightDM, so it runs after step 5. Skip if
+            // the boot one-shot (mde-activate-branding.service) already applied it
+            // — re-running would needlessly rebuild the initramfs.
+            if branding_active() {
+                Ok(())
+            } else {
+                run_status(
+                    Command::new("bash").arg("/usr/share/mde/branding/scripts/install-branding.sh"),
+                )
+            }
         }
         _ => Ok(()),
     }

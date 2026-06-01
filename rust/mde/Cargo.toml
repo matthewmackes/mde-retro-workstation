@@ -52,7 +52,9 @@ summary = "Windows 2000 desktop shell for Sway (MDE-Retro)"
 # Package release — bump on packaging/asset changes that reuse the same crate
 # version, so `dnf upgrade` sees a newer NEVRA. r2: RPM auto-activates branding
 # via a %posttrans one-shot; LightDM login uses gtk-greeter (web greeter dropped).
-release = "2"
+# r3: first-login Setup auto-launch + Start-menu/Programs entry; setup is now
+# marker-aware so it won't re-brand or flip the DM back to greetd.
+release = "3"
 assets = [
     { source = "target/release/mde", dest = "/usr/bin/mde", mode = "0755" },
     # Symlinks so `mde-panel`, `mde-menu`, ... dispatch via argv[0].
@@ -72,6 +74,10 @@ assets = [
     { source = "skel/.local/share/themes/Win2000-MDE/openbox-3/themerc", dest = "/usr/share/mde/skel/.local/share/themes/Win2000-MDE/openbox-3/themerc", mode = "0644" },
     # The Wayland session entry the greeter lists.
     { source = "skel/mde-retro.desktop", dest = "/usr/share/wayland-sessions/mde-retro.desktop", mode = "0644" },
+    # "Set Up MDE-Retro" launcher: shows in Start ▸ Programs (apps.rs reads
+    # /usr/share/applications) and any app launcher; also run from the desktop
+    # menu (menu.xml) and auto-launched once on first login (skel autostart).
+    { source = "skel/mde-setup.desktop", dest = "/usr/share/applications/mde-setup.desktop", mode = "0644" },
     # Rebrand assets + scripts: Plymouth/GRUB/LightDM themes, logos, wallpaper,
     # os-release/issue/fastfetch content, install-/revert-branding.sh. The setup
     # step runs install-branding.sh from here (invoked via `bash`, no +x needed).

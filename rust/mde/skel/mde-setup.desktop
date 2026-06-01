@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Set Up MDE-Retro
+GenericName=MDE-Retro Setup
+Comment=Install and configure MDE Retro Workstation (packages, assets, branding)
+Exec=mde setup
+Icon=mde-retro
+Terminal=false
+Categories=System;Settings;
+Keywords=setup;install;mde;workstation;

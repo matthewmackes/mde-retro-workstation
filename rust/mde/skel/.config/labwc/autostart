@@ -22,3 +22,20 @@ command -v swayosd-server >/dev/null 2>&1 && swayosd-server &
 
 # Screen saver / idle — armed by Display Properties (writes ~/.config/mde/idle.sh).
 [ -x "$HOME/.config/mde/idle.sh" ] && "$HOME/.config/mde/idle.sh" &
+
+# Polkit authentication agent — pkexec (Control Panel installs, Setup) needs one
+# in the session to show its password prompt. Best-effort: start whichever is
+# present (harmless if none — pkexec just won't prompt graphically).
+for _pk in /usr/libexec/polkit-gnome-authentication-agent-1 \
+           /usr/libexec/polkit-mate-authentication-agent-1 \
+           /usr/bin/lxqt-policykit-agent /usr/bin/lxpolkit; do
+    [ -x "$_pk" ] && { "$_pk" & break; }
+done
+
+# First-run MDE-Retro Setup. Opens the Win2000-blue Setup wizard on first login;
+# the marker is written only on success, so it reappears next login until Setup
+# completes. (Branding itself is applied at boot by mde-activate-branding.service;
+# Setup detects that and skips re-branding — see tui_setup.rs branding_active.)
+if [ ! -e "$HOME/.config/mde/.setup-done" ]; then
+    ( mde setup && mkdir -p "$HOME/.config/mde" && touch "$HOME/.config/mde/.setup-done" ) &
+fi
