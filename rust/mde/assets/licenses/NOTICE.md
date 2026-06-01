@@ -21,11 +21,17 @@ bundles classic-look assets from third parties, under their own terms:
 - License: **MIT/X** — full text in `haiku-icons-MIT.txt` (this directory).
   Freely redistributable; bundled in the RPM.
 
-## IBM Plex Sans  (the BeOS-theme UI font, embedded in the binary)
+## IBM Plex Sans  (the Carbon/BeOS-theme UI font, embedded in the binary)
 - Upstream: https://github.com/IBM/plex
 - License: **SIL Open Font License 1.1** — full text in `IBMPlexSans-OFL.txt`.
   Freely redistributable; the Regular + Bold faces are compiled into the mde
-  binary (used when the BeOS theme is active).
+  binary (used when the Carbon or BeOS theme is active).
+
+## Droid Sans  (the Windows 2000-theme UI font, embedded in the binary)
+- Upstream: the Android Open Source Project (Droid Sans, Ascender Corp.).
+- License: **Apache License 2.0** — full text in `DroidSans-Apache-2.0.txt`.
+  Freely redistributable; the Regular + Bold faces are compiled into the mde
+  binary as the Tahoma stand-in for the Windows 2000 Classic look.
 
 If in doubt, install code-only and run `mde install --assets`, which fetches
 these from upstream at first run instead of redistributing them.

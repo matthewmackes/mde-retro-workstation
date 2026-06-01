@@ -29,7 +29,7 @@ Remaining (FINISH unless noted):
   `fx_*` fields/messages/handlers removed.
 - [✓] **§3 mockup** `taskbar_properties.rs` "Show clock" + "Use Personalized Menus"
   — greyed; dead `show_clock`/`personalized` state + messages removed.
-- [ ] **§4 packaging** Add `assets/licenses/DroidSans-Apache-2.0.txt` to the asset
+- [✓] **§4 packaging** Add `assets/licenses/DroidSans-Apache-2.0.txt` to the asset
   list + a Droid Sans entry to `NOTICE.md` (the font is embedded in the shipped
   binary; IBM Plex — embedded the same way — is already covered).
 - [ ] **§3 decision** `wlr.rs` `Wm::close` / `Wm::set_maximized` and `outputs.rs`

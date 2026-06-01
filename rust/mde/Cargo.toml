@@ -106,6 +106,8 @@ assets = [
     { source = "target/rpm-assets/sounds/Chicago95/**/*", dest = "/usr/share/sounds/Chicago95/", mode = "0644" },
     # GPL-3 text + provenance NOTICE for the bundled art (license compliance).
     { source = "assets/licenses/GPL-3.0.txt", dest = "/usr/share/licenses/mde/GPL-3.0.txt", mode = "0644", doc = true },
+    # Droid Sans (Win2000-theme UI font, Apache-2.0) embedded in the binary.
+    { source = "assets/licenses/DroidSans-Apache-2.0.txt", dest = "/usr/share/licenses/mde/DroidSans-Apache-2.0.txt", mode = "0644", doc = true },
     { source = "assets/licenses/NOTICE.md", dest = "/usr/share/licenses/mde/NOTICE.md", mode = "0644", doc = true },
 ]
 # Runtime packages the shell actually drives. `requires` = the CORE session +
