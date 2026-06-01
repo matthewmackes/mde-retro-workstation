@@ -1,6 +1,12 @@
 # Accuracy harness — "accuracy is job 1"
 
-The Win2000 look is verified, not eyeballed. Two layers, both wired into
+Each theme's look is verified, not eyeballed. Note the **default theme is now
+Carbon dark**, so a default-config capture is the Carbon palette, not the Win2000
+`#3a6ea5` desktop — every capture must say which theme (`menu.json`
+`theme`/`theme_mode`) it asserts, while the layer-1 checklist pins the Win2000
+ground-truth values regardless of the active theme. Also: the compositor that draws
+title bars / frames / z-order is **labwc** (not sway); the §0 "boundary" section
+below predates that and should read "mde ↔ labwc". Two layers, both wired into
 `cargo test`:
 
 | Layer | Test | Needs Wayland? |

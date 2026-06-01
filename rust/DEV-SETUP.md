@@ -36,7 +36,11 @@ cargo test                     # unit tests + accuracy harness (needs a session)
 cargo generate-rpm -p mde      # -> target/generate-rpm/mde-*.rpm
 ```
 
-> The dependency versions in the Cargo.toml files (notably `iced` /
-> `iced_layershell`) are pinned approximately; reconcile with `cargo update`
-> on the first build if the resolver complains — they were authored without a
-> live toolchain to compile against.
+> Dependencies are pinned and the workspace builds clean against a live toolchain
+> (`Cargo.lock` is committed). The shell renders with **iced 0.13** + **iced_layershell
+> 0.13**; window control is wlr-foreign-toplevel (`wayland-client` / `wayland-protocols-wlr`).
+>
+> **Runtime (to actually run the shell, not just build it):** the session is
+> **labwc**, and the shell shells out to several tools — install the runtime set
+> too: `sudo dnf install -y labwc wlr-randr wlopm swaybg swayidle swaylock foot grim`.
+> (The RPM declares these in its `requires`; for a dev session install them by hand.)

@@ -1,8 +1,8 @@
-# MDE-Retro: sway → labwc migration plan
+# MDE-Retro: sway → labwc migration (DONE — historical record)
 
 **Goal:** real Windows 2000 title bars with working **minimize / maximize-restore / close** buttons (and a system-menu icon), which sway cannot draw. `labwc` (a wlroots, Openbox-style stacking compositor) draws *themeable* server-side titlebar buttons and is genuinely Win2000-skinnable.
 
-**Status:** PLAN ONLY — do not execute without sign-off. Switching the compositor changes the daily-driver session.
+**Status:** ✅ **DONE** (2026-06-01) — the migration was executed; **labwc is the live compositor**. This document is now a historical record of the plan, not pending work. Every phase has a code landing: foreign-toplevel window control = `wlr.rs`; output management = `outputs.rs` (`wlr-randr --json`); keybinds/theme = `skel/.config/labwc/rc.xml` + the Win2000-MDE Openbox theme; session = `mde/skel/mde-retro.desktop` (`Exec=labwc`); exit = `dialogs.rs` (`labwc --exit`). The "Today (sway)" / "drives swaymsg" framing below is history — there is no `swaymsg` in `rust/mde/src`.
 
 ## Why this is bigger than "add buttons"
 

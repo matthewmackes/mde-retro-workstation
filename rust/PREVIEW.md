@@ -1,11 +1,15 @@
-# MDE-Retro — Rust shell, preview release
+# MDE-Retro — Rust shell
 
-A native **Rust** (iced toolkit, no GTK) reimplementation of the Windows 2000
-Classic desktop shell, riding on top of sway. This is a **preview for review**:
-every component is built, runs, and is screenshot-verified in an isolated
-headless sway. It is **not yet cut over** — the live `~/.config/sway/config`
-flip is the deliberate last step, to be done with you present (see "Not in this
-preview" below).
+A native **Rust** (iced toolkit, no GTK) desktop shell — the live product, running
+on **labwc** and defaulting to the **IBM Carbon** theme (Windows 2000 selectable).
+Every component is screenshot-verified in an **isolated headless sway** (the nested
+test harness still uses sway because it works on any wlroots compositor — that's a
+test-rig detail, not the runtime). The labwc cutover is **done**; this is no longer
+a "preview". The note below kept a list of pre-cutover gaps that are now closed.
+
+> **Note:** the capture harness still nests *sway* purely because `wlr.rs`'s
+> foreign-toplevel client works on any wlroots compositor; the shipped session is
+> labwc (`mde/skel/mde-retro.desktop`).
 
 ## How to review it
 

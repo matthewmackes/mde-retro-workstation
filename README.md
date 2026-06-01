@@ -1,10 +1,18 @@
 # MDE-Retro
 
+> **⚠️ This page documents the LEGACY script-based sway desktop.** The live
+> product is the native **Rust shell** in [`rust/`](rust/), which runs on
+> **labwc** (not sway) and defaults to an **IBM Carbon** theme with Windows 2000
+> selectable. Start at [`rust/README.md`](rust/README.md); see
+> [`.claude/CLAUDE.md`](.claude/CLAUDE.md) §1 and [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md)
+> for the current architecture. The sway/Waybar/wofi setup below is kept for
+> history and the `install.sh` legacy path only.
+
 A **Windows 2000 / 95-style desktop for [Sway](https://swaywm.org/)** (Wayland) on
-Fedora. It turns a tiling compositor into a familiar classic-Windows environment:
-silver 3D window frames, navy title bars, a gray taskbar with a Start button and
-tray clock, floating overlapping windows, click-to-focus, and the keyboard muscle
-memory you already have (`Alt+F4`, `Alt+Tab`, `Ctrl+Esc`, `Win+R`, `Win+E`).
+Fedora (legacy path). It turns a tiling compositor into a familiar classic-Windows
+environment: silver 3D window frames, navy title bars, a gray taskbar with a Start
+button and tray clock, floating overlapping windows, click-to-focus, and the
+keyboard muscle memory you already have (`Alt+F4`, `Alt+Tab`, `Ctrl+Esc`, `Win+R`, `Win+E`).
 
 It is the *retro theme layer* of a larger personal desktop ("MDE"); everything
 here is self-contained and driven by plain Sway + Waybar + wofi config plus a few
