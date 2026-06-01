@@ -787,12 +787,13 @@ fn screen_preview(state: &Display) -> Element<'static, Message> {
             .content_fit(iced::ContentFit::Cover)
             .into();
     }
-    // No wallpaper: the Win2000 default desktop teal.
+    // No wallpaper: the themed desktop background (Win2000 blue / Carbon gray),
+    // via the palette edge rather than a raw literal (§2.1).
     container(Space::new(Length::Fill, Length::Fill))
         .width(Length::Fill)
         .height(Length::Fill)
         .style(|_| container::Style {
-            background: Some(Background::Color(Color::from_rgb8(0x3a, 0x6e, 0x6e))),
+            background: Some(Background::Color(palette::color(palette::BACKGROUND))),
             ..container::Style::default()
         })
         .into()

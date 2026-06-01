@@ -66,13 +66,11 @@ pub const SETUP_GRADIENT_BOTTOM: Rgb = (0x08, 0x16, 0x40);
 pub const SETUP_PROGRESS: Rgb = (0x16, 0x3a, 0xa8);
 pub const SETUP_SUBTITLE: Rgb = (0x9e, 0xb2, 0xdb);
 
-/// The Start-button "flying windows" flag panes (red/green/blue/yellow). Brand
-/// art, not a GetSysColor value — drawn as quads because the UI font has no
-/// flag glyph (see `widget::flag`).
-pub const LOGO_RED: Rgb = (0xe8, 0x44, 0x32);
-pub const LOGO_GREEN: Rgb = (0x6f, 0xb1, 0x2e);
-pub const LOGO_BLUE: Rgb = (0x2a, 0x7d, 0xe1);
-pub const LOGO_YELLOW: Rgb = (0xf2, 0xc4, 0x1d);
+/// The shell bar / UI Shell header surface. Identity value is the Win2000 silver
+/// taskbar face (a distinct key from `BUTTON_FACE` so the Carbon remap can paint
+/// the header its own Gray 100 / white). Under Carbon it becomes the flat header
+/// strip; under Win2000/BeOS it reads as the classic silver bar.
+pub const SHELL_HEADER: Rgb = (0xd4, 0xd0, 0xc7);
 
 // --- Runtime theme switch --------------------------------------------------
 // The palette constants above are the canonical Win2000 role keys. Alternate
@@ -130,12 +128,6 @@ pub fn set_accent(idx: u8) {
 /// The icon accent index (0=blue 1=orange 2=red 3=neutral).
 pub fn accent_idx() -> u8 {
     ACCENT.load(Ordering::Relaxed)
-}
-
-/// Back-compat: BeOS was previously the only alternate theme. Selecting it here
-/// keeps the Haiku-icon-set path working.
-pub fn use_beos(on: bool) {
-    set_theme(if on { Theme::Beos } else { Theme::Win2000 });
 }
 
 /// Whether the BeOS theme is active.
@@ -197,6 +189,8 @@ fn carbon(rgb: Rgb) -> Rgb {
         (0xff, 0xff, 0xff) => if dark { (0x39, 0x39, 0x39) } else { (0xff, 0xff, 0xff) },
         // Silver panel / menu / button face / inactive title text -> layer.
         (0xd4, 0xd0, 0xc8) => if dark { (0x39, 0x39, 0x39) } else { (0xf4, 0xf4, 0xf4) },
+        // Shell/UI-Shell header -> Gray 100 (dark) / white (light).
+        (0xd4, 0xd0, 0xc7) => if dark { (0x16, 0x16, 0x16) } else { (0xff, 0xff, 0xff) },
         // Inner bevel light -> hover layer (mostly unused once flattened).
         (0xdf, 0xdf, 0xdf) => if dark { (0x47, 0x47, 0x47) } else { (0xe8, 0xe8, 0xe8) },
         // Bevel shadow / disabled / inactive -> text-secondary / border-strong.

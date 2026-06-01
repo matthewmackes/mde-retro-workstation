@@ -45,6 +45,17 @@ fn window_and_frame_silver() {
     assert_eq!(palette::BUTTON_FACE, (0xd4, 0xd0, 0xc8));
 }
 
+/// The Carbon sentinels are load-bearing (§2.2): a "fix" to pure white/black would
+/// break the dark-mode text/surface split. Pin both by name so they can't drift,
+/// plus the SHELL_HEADER role's silver identity (distinct key from BUTTON_FACE).
+#[test]
+fn carbon_sentinels_and_header_are_pinned() {
+    assert_eq!(palette::TITLE_TEXT, (0xff, 0xff, 0xfe)); // white text, distinct from WINDOW surface
+    assert_eq!(palette::HIGHLIGHT_TEXT, (0xff, 0xff, 0xfe));
+    assert_eq!(palette::WINDOW_FRAME, (0x00, 0x00, 0x01)); // frame, distinct from black TEXT
+    assert_eq!(palette::SHELL_HEADER, (0xd4, 0xd0, 0xc7)); // ≠ BUTTON_FACE (…c8)
+}
+
 /// The 3D ramp must run strictly light -> dark so bevels read correctly.
 #[test]
 fn bevel_ramp_is_monotonically_darker() {
@@ -125,4 +136,7 @@ fn ui_font_is_the_shipped_substitute() {
 fn ui_size_is_one_source_of_truth() {
     assert_eq!(metrics::UI_FONT_PT, 8.0);
     assert_eq!(metrics::UI_PX, (metrics::UI_FONT_PT * 96.0 / 72.0).round());
+    // INFO_TITLE_PX is §2.3's one larger UI size (info-band/about/control-panel
+    // headings); pin it so a silent drift fails CI like UI_PX does.
+    assert_eq!(metrics::INFO_TITLE_PX, 16.0);
 }

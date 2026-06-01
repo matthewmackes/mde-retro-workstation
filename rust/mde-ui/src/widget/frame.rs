@@ -33,11 +33,6 @@ pub fn raised() -> BevelFrame {
 pub fn sunken() -> BevelFrame {
     BevelFrame::new(Bevel::sunken())
 }
-/// A pressed frame: a depressed button.
-pub fn pressed() -> BevelFrame {
-    BevelFrame::new(Bevel::pressed())
-}
-
 impl BevelFrame {
     fn new(bevel: Bevel) -> Self {
         Self {

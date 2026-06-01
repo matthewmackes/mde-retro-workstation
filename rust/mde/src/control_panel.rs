@@ -359,7 +359,7 @@ fn dim_missing(state: &ControlPanel, i: usize, t: iced::widget::Text<'static>) -
     if state.installed.get(i).copied().unwrap_or(true) {
         t
     } else {
-        t.color(iced::Color::from_rgb8(0x70, 0x70, 0x70))
+        t.color(palette::color(palette::GRAY_TEXT))
     }
 }
 

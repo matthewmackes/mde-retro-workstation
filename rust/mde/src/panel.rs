@@ -172,17 +172,12 @@ fn namespace(_state: &Panel) -> String {
 }
 
 fn style(_state: &Panel, _theme: &iced::Theme) -> Appearance {
-    // Carbon UI Shell header: a flat Gray 100 (dark) / white (light) strip.
-    if palette::is_carbon() {
-        let bg = if palette::is_dark() {
-            Color::from_rgb8(0x16, 0x16, 0x16)
-        } else {
-            Color::from_rgb8(0xff, 0xff, 0xff)
-        };
-        return Appearance { background_color: bg, text_color: palette::color(palette::WINDOW_TEXT) };
-    }
+    // The bar surface comes from the SHELL_HEADER role: under Carbon a flat Gray
+    // 100 (dark) / white (light) UI-Shell header, under Win2000/BeOS the silver
+    // taskbar. Routed through palette::color() like every other surface (§2.1) —
+    // no raw hex here.
     Appearance {
-        background_color: palette::color(palette::BUTTON_FACE),
+        background_color: palette::color(palette::SHELL_HEADER),
         text_color: palette::color(palette::WINDOW_TEXT),
     }
 }

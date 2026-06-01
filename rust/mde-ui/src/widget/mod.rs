@@ -6,7 +6,6 @@
 
 pub mod bevel;
 pub mod button;
-pub mod flag;
 pub mod frame;
 pub mod groupbox;
 pub mod infoband;
@@ -19,7 +18,7 @@ pub use groupbox::group_box;
 pub use tabs::tab_strip;
 
 use iced::advanced::renderer;
-use iced::widget::{checkbox, container, pick_list, progress_bar, radio, scrollable, text_input};
+use iced::widget::{checkbox, container, pick_list, radio, scrollable, text_input};
 use iced::{Background, Border, Color, Rectangle, Shadow};
 
 use crate::palette;
@@ -126,21 +125,6 @@ pub fn radio_style(_theme: &iced::Theme, _status: radio::Status) -> radio::Style
         border_width: 1.0,
         border_color: palette::color(palette::BUTTON_SHADOW),
         text_color: Some(palette::color(palette::WINDOW_TEXT)),
-    }
-}
-
-/// The Win2000 progress bar: a sunken silver trough with a navy fill. iced draws
-/// a solid bar (not the classic segmented blocks), so this is the closest
-/// faithful approximation. Pass to `progress_bar(...).style(mde_ui::progress_style)`.
-pub fn progress_style(_theme: &iced::Theme) -> progress_bar::Style {
-    progress_bar::Style {
-        background: Background::Color(palette::color(palette::BUTTON_LIGHT)),
-        bar: Background::Color(palette::color(palette::HIGHLIGHT)),
-        border: Border {
-            color: palette::color(palette::BUTTON_SHADOW),
-            width: 1.0,
-            radius: ctl_radius(),
-        },
     }
 }
 

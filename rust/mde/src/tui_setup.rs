@@ -10,7 +10,7 @@ use crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Gauge, Paragraph, Wrap};
+use ratatui::widgets::{Block, Paragraph, Wrap};
 use ratatui::Frame;
 
 const BLUE: Color = Color::Indexed(18); // deep NT setup blue
@@ -525,9 +525,4 @@ fn finish_body(app: &App) -> ratatui::text::Text<'static> {
         "The system may be incomplete. Review the errors and re-run `sudo mde setup`.",
     ));
     ratatui::text::Text::from(lines)
-}
-
-#[allow(dead_code)]
-fn _gauge(app: &App) -> Gauge<'static> {
-    Gauge::default().ratio(app.current as f64 / app.steps.len() as f64)
 }
