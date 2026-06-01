@@ -22,16 +22,12 @@ struct TaskbarProps {
     small_icons: bool,
     // Cosmetic, for the authentic control set (not enforced by the shell).
     always_on_top: bool,
-    show_clock: bool,
-    personalized: bool,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     SelectTab(usize),
     ToggleSmallIcons(bool),
-    ToggleClock(bool),
-    TogglePersonalized(bool),
     Apply,
     Ok,
     Cancel,
@@ -62,8 +58,6 @@ fn gui() -> iced::Result {
                     tab: 0,
                     small_icons: st.start_small_icons,
                     always_on_top: true,
-                    show_clock: true,
-                    personalized: true,
                 },
                 Task::none(),
             )
@@ -81,8 +75,6 @@ fn update(state: &mut TaskbarProps, message: Message) -> Task<Message> {
     match message {
         Message::SelectTab(i) => state.tab = i,
         Message::ToggleSmallIcons(b) => state.small_icons = b,
-        Message::ToggleClock(b) => state.show_clock = b,
-        Message::TogglePersonalized(b) => state.personalized = b,
         Message::Apply => persist(state),
         Message::Ok => {
             persist(state);
@@ -129,12 +121,14 @@ fn general_tab(state: &TaskbarProps) -> Element<'_, Message> {
         .spacing(6.0)
         .push(cbox_disabled("Always keep the taskbar on top of other windows", state.always_on_top))
         .push(cbox_disabled("Auto hide the taskbar", false))
-        .push(cbox("Show clock", state.show_clock, Message::ToggleClock));
+        // The panel always draws the clock; greyed (not a discarded toggle).
+        .push(cbox_disabled("Show clock", true));
 
     let start_menu = Column::new()
         .spacing(6.0)
         .push(cbox("Show small icons in Start menu", state.small_icons, Message::ToggleSmallIcons))
-        .push(cbox("Use Personalized Menus", state.personalized, Message::TogglePersonalized));
+        // Personalized Menus isn't implemented; greyed for fidelity.
+        .push(cbox_disabled("Use Personalized Menus", true));
 
     Column::new()
         .spacing(10.0)

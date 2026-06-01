@@ -373,12 +373,6 @@ struct Display {
     theme_mode: ThemeMode,
     icon_color: IconColor,
 
-    // Effects (sway has no effect engine — these are faithful-but-inert except
-    // where noted; kept for the 1:1 control set).
-    fx_transition: bool,
-    fx_drag_contents: bool,
-    fx_large_icons: bool,
-
     /// Identify overlay: flash each output's number in its preview.
     identify: bool,
 
@@ -411,9 +405,6 @@ enum Message {
     SetTheme(Theme),
     SetThemeMode(ThemeMode),
     SetIconColor(IconColor),
-    ToggleFxTransition(bool),
-    ToggleFxDrag(bool),
-    ToggleFxLargeIcons(bool),
 
     Apply,
     Ok,
@@ -481,9 +472,6 @@ fn gui() -> iced::Result {
                     theme: Theme::from_key(&st0.theme),
                     theme_mode: ThemeMode::from_key(&st0.theme_mode),
                     icon_color: IconColor::from_key(&st0.icon_color),
-                    fx_transition: true,
-                    fx_drag_contents: true,
-                    fx_large_icons: false,
                     identify: false,
                     revert: None,
                     close_on_keep: false,
@@ -564,9 +552,6 @@ fn update(state: &mut Display, message: Message) -> Task<Message> {
             state.icon_color = c;
             apply_appearance(state);
         }
-        Message::ToggleFxTransition(b) => state.fx_transition = b,
-        Message::ToggleFxDrag(b) => state.fx_drag_contents = b,
-        Message::ToggleFxLargeIcons(b) => state.fx_large_icons = b,
 
         Message::Apply => {
             ensure_backends();
@@ -1083,28 +1068,19 @@ fn appearance_tab(state: &Display) -> Element<'_, Message> {
         .into()
 }
 
-fn effects_tab(state: &Display) -> Element<'_, Message> {
+fn effects_tab(_state: &Display) -> Element<'_, Message> {
+    // labwc has no compositor effect engine, so these have no live effect and
+    // aren't persisted. Render them greyed (no on_toggle) for fidelity rather
+    // than as enabled toggles that silently discard their state.
+    let fx = |text: &str, on: bool| {
+        checkbox(text.to_string(), on).style(mde_ui::checkbox_style).text_size(metrics::UI_PX)
+    };
     let group = Column::new()
         .spacing(8.0)
-        .push(
-            checkbox("Use transition effects for menus and tooltips", state.fx_transition)
-                .on_toggle(Message::ToggleFxTransition)
-                .style(mde_ui::checkbox_style)
-                .text_size(metrics::UI_PX),
-        )
-        .push(
-            checkbox("Show window contents while dragging", state.fx_drag_contents)
-                .on_toggle(Message::ToggleFxDrag)
-                .style(mde_ui::checkbox_style)
-                .text_size(metrics::UI_PX),
-        )
-        .push(
-            checkbox("Use large icons", state.fx_large_icons)
-                .on_toggle(Message::ToggleFxLargeIcons)
-                .style(mde_ui::checkbox_style)
-                .text_size(metrics::UI_PX),
-        )
-        .push(label("Note: labwc has no compositor effect engine, so these are recorded for fidelity but have no live visual effect."));
+        .push(fx("Use transition effects for menus and tooltips", true))
+        .push(fx("Show window contents while dragging", true))
+        .push(fx("Use large icons", false))
+        .push(label("Note: labwc has no compositor effect engine, so these are shown greyed for fidelity — no live visual effect."));
     Column::new().spacing(12.0).push(group_box("Visual effects", group)).into()
 }
 

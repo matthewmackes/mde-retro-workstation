@@ -25,10 +25,10 @@ Remaining (FINISH unless noted):
 - [✓] **§2.3** `.size()` literals replaced with named `metrics` constants
   (`IDENTIFY_PX`, `WIZARD_HEADING_PX`, `WIZARD_STATUS_PX`) at display.rs/installer.rs.
 - [✓] **§2.2** `TASKBAR_BUTTON_MIN`, `IDENTIFY_PX`, `WIZARD_*` pinned in `checklist.rs`.
-- [ ] **§3 mockup** `display.rs` Effects tab — 3 enabled checkboxes whose state is
-  never read/persisted: grey out (`cbox_disabled`) or persist via `state.rs`.
-- [ ] **§3 mockup** `taskbar_properties.rs` "Show clock" + "Use Personalized Menus" —
-  enabled but discarded: grey out (matches the file's own pattern) or wire.
+- [✓] **§3 mockup** `display.rs` Effects tab — greyed (no on_toggle); dead
+  `fx_*` fields/messages/handlers removed.
+- [✓] **§3 mockup** `taskbar_properties.rs` "Show clock" + "Use Personalized Menus"
+  — greyed; dead `show_clock`/`personalized` state + messages removed.
 - [ ] **§4 packaging** Add `assets/licenses/DroidSans-Apache-2.0.txt` to the asset
   list + a Droid Sans entry to `NOTICE.md` (the font is embedded in the shipped
   binary; IBM Plex — embedded the same way — is already covered).
