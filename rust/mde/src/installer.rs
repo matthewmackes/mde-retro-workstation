@@ -55,28 +55,39 @@ pub fn dispatch(args: &[String]) -> ExitCode {
     let tui = args.iter().any(|a| a == "--tui");
     let gui = args.iter().any(|a| a == "--gui");
     let dry = args.iter().any(|a| a == "--dry-run");
+    // `--packages=pkg1,pkg2` — an explicit set (e.g. handed over from the GUI
+    // component picker). When absent, the TUI shows its own Choose-Components
+    // screen and falls back to the curated catalogue default.
+    let packages = args.iter().find_map(|a| a.strip_prefix("--packages=")).map(|s| {
+        s.split(',').filter(|p| !p.is_empty()).map(str::to_string).collect::<Vec<String>>()
+    });
     let headless = std::env::var_os("WAYLAND_DISPLAY").is_none();
     if gui {
         run(args) // themed visual preview (explicit opt-in)
     } else if tui || headless {
-        crate::tui_setup::run(dry)
+        crate::tui_setup::run(dry, packages)
     } else {
-        launch_tui_terminal(dry)
+        launch_tui_terminal(dry, packages)
     }
 }
 
 /// In-session: open a Win2000-blue `foot` window running the real TUI installer
 /// as root (`pkexec mde setup --tui`). The verified engine does the work; the
 /// terminal is the graphical face. Dry runs skip privilege (they install nothing).
-fn launch_tui_terminal(dry: bool) -> ExitCode {
+fn launch_tui_terminal(dry: bool, packages: Option<Vec<String>>) -> ExitCode {
     let exe = std::env::current_exe()
         .ok()
         .and_then(|p| p.to_str().map(String::from))
         .unwrap_or_else(|| "mde".to_string());
+    // Forward a GUI-collected component set to the real engine, if any.
+    let pkgs_arg = match packages {
+        Some(p) if !p.is_empty() => format!(" --packages='{}'", p.join(",")),
+        _ => String::new(),
+    };
     let inner = if dry {
-        format!("'{exe}' setup --tui --dry-run; printf '\\nPress Enter to close… '; read _")
+        format!("'{exe}' setup --tui --dry-run{pkgs_arg}; printf '\\nPress Enter to close… '; read _")
     } else {
-        format!("pkexec '{exe}' setup --tui")
+        format!("pkexec '{exe}' setup --tui{pkgs_arg}")
     };
     let status = std::process::Command::new("foot")
         .args(["--title", "MDE-Retro Setup", "-o", "colors.background=0a246a"])

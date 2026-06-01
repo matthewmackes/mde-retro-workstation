@@ -16,15 +16,10 @@ use ratatui::Frame;
 const BLUE: Color = Color::Indexed(18); // deep NT setup blue
 const TITLE: &str = "MDE-Retro Professional Setup";
 
-/// Core runtime packages (everything else = the 40 system tools). `git` and
-/// `python3` are required by the asset-fetch step (`mde install --assets`
-/// clones Chicago95 with git and runs the Win2k icon installer with python3),
-/// so they must land before "Installing visual assets".
-const CORE: &[&str] = &[
-    "sway", "foot", "swaybg", "grim", "wmenu", "NetworkManager",
-    "NetworkManager-applet", "greetd", "tuigreet", "pipewire", "wireplumber",
-    "xkeyboard-config", "google-droid-sans-fonts", "polkit", "git", "python3",
-];
+// The package set is now the unified `catalogue` (base session + apps + Control
+// Panel tools + Xen/XCP-ng guest tools). Step 1 installs the user's selection
+// (or the curated default); git/python3 are mandatory `Base System` entries so
+// they still land before the "Installing visual assets" fetch step.
 
 #[derive(PartialEq)]
 enum Screen {
@@ -48,9 +43,12 @@ struct App {
     /// Steps that failed ("label: error"); shown on the Finish screen so a
     /// broken install is never reported as success.
     failed: Vec<String>,
+    /// Packages step 1 installs — from `--packages` (GUI handoff) or, failing
+    /// that, the curated catalogue default.
+    selection: Vec<String>,
 }
 
-pub fn run(dry_run: bool) -> ExitCode {
+pub fn run(dry_run: bool, packages: Option<Vec<String>>) -> ExitCode {
     // ratatui::init() (crossterm raw mode) panics without a controlling tty.
     // `mde setup --tui` is meant for a real console, so fail cleanly otherwise.
     use std::io::IsTerminal;
@@ -73,6 +71,8 @@ pub fn run(dry_run: bool) -> ExitCode {
         current: 0,
         dry_run,
         failed: Vec::new(),
+        selection: packages
+            .unwrap_or_else(|| crate::catalogue::default_selection(&crate::catalogue::catalogue())),
     };
 
     let mut terminal = ratatui::init();
@@ -107,7 +107,7 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> ExitCod
         if app.screen == Screen::Progress {
             // Run one step per frame so the screen updates between steps.
             if app.current < app.steps.len() {
-                if let Err(e) = run_step(app.current, app.dry_run) {
+                if let Err(e) = run_step(app.current, app.dry_run, &app.selection) {
                     let label = app.steps[app.current].label;
                     app.failed.push(format!("{label}: {e}"));
                 }
@@ -152,7 +152,7 @@ fn run_status(cmd: &mut Command) -> Result<(), String> {
     }
 }
 
-fn run_step(i: usize, dry_run: bool) -> Result<(), String> {
+fn run_step(i: usize, dry_run: bool, selection: &[String]) -> Result<(), String> {
     if dry_run {
         std::thread::sleep(Duration::from_millis(450));
         return Ok(());
@@ -160,16 +160,23 @@ fn run_step(i: usize, dry_run: bool) -> Result<(), String> {
     match i {
         0 => Ok(()), // collecting information (root already checked)
         1 => {
-            let mut pkgs: Vec<String> = CORE.iter().map(|s| s.to_string()).collect();
-            for t in crate::fedora::TOOLS {
-                pkgs.push(t.package.to_string());
+            // Install the chosen components that aren't already present. dnf
+            // --skip-unavailable tolerates packages missing from enabled repos
+            // (e.g. the Xen guest agent before a COPR is added).
+            let to_install: Vec<&str> = selection
+                .iter()
+                .map(String::as_str)
+                .filter(|p| !crate::catalogue::is_installed(p))
+                .collect();
+            let mut r = Ok(());
+            if !to_install.is_empty() {
+                let mut args = vec!["install", "-y", "--skip-unavailable"];
+                args.extend(to_install.iter().copied());
+                r = run_status(Command::new("dnf").args(&args));
             }
-            pkgs.sort();
-            pkgs.dedup();
-            let mut args = vec!["install", "-y", "--skip-unavailable"];
-            let refs: Vec<&str> = pkgs.iter().map(|s| s.as_str()).collect();
-            args.extend(refs);
-            run_status(Command::new("dnf").args(&args))
+            // If the XCP-ng/XenServer guest agent landed, turn its service on.
+            crate::catalogue::enable_guest_agent();
+            r
         }
         2 => {
             // configs are shipped by the RPM under /usr/share/mde/skel

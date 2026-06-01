@@ -13,6 +13,7 @@ use std::process::ExitCode;
 
 mod about;
 mod apps;
+mod catalogue;
 mod control_panel;
 mod dialogs;
 mod display;
