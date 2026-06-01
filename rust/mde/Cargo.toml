@@ -54,7 +54,9 @@ summary = "Windows 2000 desktop shell for Sway (MDE-Retro)"
 # via a %posttrans one-shot; LightDM login uses gtk-greeter (web greeter dropped).
 # r3: first-login Setup auto-launch + Start-menu/Programs entry; setup is now
 # marker-aware so it won't re-brand or flip the DM back to greetd.
-release = "3"
+# r4: unified package catalogue (incl. Xen/XCP-ng guest tools) + Choose-Components
+# selector in both the TUI and GUI installers; Control Panel greys missing tools.
+release = "4"
 assets = [
     { source = "target/release/mde", dest = "/usr/bin/mde", mode = "0755" },
     # Symlinks so `mde-panel`, `mde-menu`, ... dispatch via argv[0].

@@ -353,6 +353,16 @@ fn tool_label(state: &ControlPanel, i: usize, tool: &fedora::Tool) -> String {
     }
 }
 
+/// Grey a label when the tool isn't installed (it stays clickable → installs on
+/// click via pkexec dnf), so present vs. installable reads at a glance.
+fn dim_missing(state: &ControlPanel, i: usize, t: iced::widget::Text<'static>) -> iced::widget::Text<'static> {
+    if state.installed.get(i).copied().unwrap_or(true) {
+        t
+    } else {
+        t.color(iced::Color::from_rgb8(0x70, 0x70, 0x70))
+    }
+}
+
 /// List view: one row per applet, 16px icon + name, grouped by category.
 fn grid_list(state: &ControlPanel) -> Element<'_, Message> {
     let mut col = Column::new().spacing(0.0).padding(pad(4.0, 4.0, 4.0, 6.0)).width(Length::Fill);
@@ -366,7 +376,7 @@ fn grid_list(state: &ControlPanel) -> Element<'_, Message> {
                 .spacing(5.0)
                 .align_y(iced::Alignment::Center)
                 .push(crate::icons::icon_any(tool.icons, 16))
-                .push(text(tool_label(state, i, tool)).size(metrics::UI_PX));
+                .push(dim_missing(state, i, text(tool_label(state, i, tool)).size(metrics::UI_PX)));
             col = col.push(
                 button(row)
                     .on_press(Message::Activate(i))
@@ -408,12 +418,14 @@ fn large_cell<'a>(state: &ControlPanel, i: usize, tool: &'a fedora::Tool) -> Ele
         .spacing(3.0)
         .width(Length::Fixed(82.0))
         .push(crate::icons::icon_any(tool.icons, 32))
-        .push(
+        .push(dim_missing(
+            state,
+            i,
             text(tool.name.to_string())
                 .size(metrics::UI_PX)
                 .align_x(iced::Alignment::Center)
                 .width(Length::Fill),
-        );
+        ));
     button(cell)
         .on_press(Message::Activate(i))
         .padding(pad(6.0, 2.0, 6.0, 2.0))
