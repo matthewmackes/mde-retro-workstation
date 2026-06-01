@@ -46,6 +46,9 @@ struct Panel {
     has_backlight: bool,
     /// Tick counter: the expensive subprocess polls run every 5th tick.
     tick: u32,
+    /// Local UTC offset (seconds), read once at startup so the clock formats
+    /// in-process instead of forking `date` every tick.
+    clock_offset: i32,
     /// The Start menu child process, if open. The panel owns it so a second
     /// Start click toggles it closed instead of stacking another full-screen
     /// overlay (which made the menu "take several clicks" to open), and so it
@@ -143,6 +146,7 @@ fn launch() -> Result<(), iced_layershell::Error> {
                 tray: Some(crate::tray::start()),
                 wm: wlr::start(),
                 has_backlight: backlight_dir().is_some(),
+                clock_offset: utc_offset_secs(),
                 ..Panel::default()
             };
             (panel, Task::done(Message::Tick))
@@ -177,7 +181,7 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
             // nmcli). They only need ~minute precision and change rarely, so poll
             // them every 5th tick — cutting ~3 forks/sec to ~0.6/sec.
             if state.tick % 5 == 0 {
-                state.clock = clock_now();
+                state.clock = clock_now(state.clock_offset);
                 state.volume = poll_volume();
                 state.net = poll_net();
                 state.battery = poll_battery();
@@ -686,14 +690,73 @@ fn glyph_button(g: char, msg: Message) -> Element<'static, Message> {
     .into()
 }
 
-fn clock_now() -> String {
+/// The local UTC offset in seconds, read once at startup via `date +%z`
+/// (e.g. "-0400" → -14400). Reading it once avoids forking `date` every tick.
+fn utc_offset_secs() -> i32 {
     Command::new("date")
-        .arg("+%-l:%M %p")
+        .arg("+%z")
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+        .and_then(|s| parse_utc_offset(s.trim()))
+        .unwrap_or(0)
+}
+
+/// Parse a `+HHMM` / `-HHMM` UTC offset into seconds.
+fn parse_utc_offset(s: &str) -> Option<i32> {
+    let sign = if s.starts_with('-') { -1 } else { 1 };
+    let d = s.trim_start_matches(['+', '-']);
+    if d.len() < 4 {
+        return None;
+    }
+    let h: i32 = d.get(0..2)?.parse().ok()?;
+    let m: i32 = d.get(2..4)?.parse().ok()?;
+    Some(sign * (h * 3600 + m * 60))
+}
+
+/// Format an epoch-seconds instant as a Win2000 clock ("3:58 PM") in the given
+/// local offset — pure, so no per-tick subprocess.
+fn format_clock(epoch_secs: u64, offset_secs: i32) -> String {
+    let local = epoch_secs as i64 + offset_secs as i64;
+    let day = local.rem_euclid(86_400);
+    let h = (day / 3600) as u32;
+    let m = ((day % 3600) / 60) as u32;
+    let (ampm, h12) = if h < 12 { ("AM", h) } else { ("PM", h - 12) };
+    let h12 = if h12 == 0 { 12 } else { h12 };
+    format!("{h12}:{m:02} {ampm}")
+}
+
+fn clock_now(offset_secs: i32) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format_clock(now, offset_secs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_clock, parse_utc_offset};
+
+    #[test]
+    fn utc_offset_parsing() {
+        assert_eq!(parse_utc_offset("-0400"), Some(-14400));
+        assert_eq!(parse_utc_offset("+0530"), Some(19800));
+        assert_eq!(parse_utc_offset("+0000"), Some(0));
+        assert_eq!(parse_utc_offset("Z"), None);
+    }
+
+    #[test]
+    fn clock_formatting() {
+        // 1970-01-01 00:00:00 UTC, offset 0 → 12:00 AM
+        assert_eq!(format_clock(0, 0), "12:00 AM");
+        // 13:05 UTC → 1:05 PM
+        assert_eq!(format_clock(13 * 3600 + 5 * 60, 0), "1:05 PM");
+        // 12:00 UTC → 12:00 PM (noon)
+        assert_eq!(format_clock(12 * 3600, 0), "12:00 PM");
+        // 00:30 UTC at -04:00 → previous day 20:30 → 8:30 PM
+        assert_eq!(format_clock(30 * 60, -4 * 3600), "8:30 PM");
+    }
 }
 
 /// Spawn this binary with `args`, returning the child handle so the panel can
