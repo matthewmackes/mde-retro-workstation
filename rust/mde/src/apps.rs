@@ -44,7 +44,7 @@ pub fn programs() -> Vec<(String, Vec<App>)> {
     let mut out: Vec<(String, Vec<App>)> = by_cat
         .into_iter()
         .map(|(cat, mut apps)| {
-            apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            apps.sort_by_key(|a| a.name.to_lowercase());
             apps.dedup_by(|a, b| a.name == b.name);
             (cat, apps)
         })

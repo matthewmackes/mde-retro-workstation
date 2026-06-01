@@ -49,7 +49,7 @@ impl Filter {
             return true;
         }
         let ext = Path::new(name).extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
-        self.exts.iter().any(|e| *e == ext)
+        self.exts.contains(&ext)
     }
 
     fn pattern(&self) -> String {
@@ -223,8 +223,8 @@ fn read_entries(dir: &Path, filter: &Filter) -> Vec<Entry> {
             }
         }
     }
-    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.sort_by_key(|a| a.name.to_lowercase());
+    files.sort_by_key(|a| a.name.to_lowercase());
     dirs.extend(files);
     dirs
 }

@@ -26,7 +26,6 @@ pub struct TrayItem {
     /// Object path of the item (usually /StatusNotifierItem).
     pub path: String,
     pub icon_name: String,
-    pub tooltip: String,
 }
 
 /// The shared, panel-readable tray state.
@@ -150,14 +149,8 @@ fn refresh(conn: &Connection, registered: &Registered, tray: &Tray) {
             Err(_) => continue,
         };
         let icon_name: String = proxy.get_property("IconName").unwrap_or_default();
-        // ToolTip is a struct (icon, pixmaps, title, body); we only want the title.
-        let tooltip: String = proxy
-            .get_property::<(String, Vec<(i32, i32, Vec<u8>)>, String, String)>("ToolTip")
-            .map(|t| if t.2.is_empty() { t.3 } else { t.2 })
-            .or_else(|_| proxy.get_property::<String>("Title"))
-            .unwrap_or_default();
         let icon_name = if icon_name.is_empty() { "application-x-executable".to_string() } else { icon_name };
-        out.push(TrayItem { service, path, icon_name, tooltip });
+        out.push(TrayItem { service, path, icon_name });
     }
     *tray.lock().unwrap() = out;
 }

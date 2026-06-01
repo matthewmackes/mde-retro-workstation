@@ -103,7 +103,7 @@ fn main() -> ExitCode {
         "taskbar-properties" => taskbar_properties::run(rest),
         "__wlr-list" => {
             wlr::debug_list();
-            return ExitCode::SUCCESS;
+            ExitCode::SUCCESS
         }
         "logoff" => dialogs::logoff(),
         "shutdown" => dialogs::shutdown(),

@@ -112,7 +112,7 @@ fn update(state: &mut SysProps, message: Message) -> Task<Message> {
             // and seed the interactive tabs from the live state.
             state.expanded = (0..devs.len()).collect();
             state.devices = devs;
-            state.auto_sel = adv.auto_updates.clone();
+            state.auto_sel = adv.auto_updates;
             state.remote_on = adv.remote_running;
             state.advanced = adv;
             state.scanned = true;

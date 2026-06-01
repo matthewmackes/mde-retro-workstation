@@ -205,8 +205,8 @@ where
                     return event::Status::Captured;
                 }
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                if state.is_pressed {
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+                if state.is_pressed => {
                     state.is_pressed = false;
                     if cursor.is_over(layout.bounds()) {
                         if let Some(message) = self.on_press.clone() {
@@ -215,7 +215,6 @@ where
                         return event::Status::Captured;
                     }
                 }
-            }
             _ => {}
         }
         event::Status::Ignored

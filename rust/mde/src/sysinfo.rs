@@ -182,7 +182,7 @@ pub fn count_cores(s: &str) -> usize {
 pub fn parse_meminfo_total(s: &str) -> u64 {
     s.lines()
         .find_map(|l| l.strip_prefix("MemTotal:"))
-        .and_then(|v| v.trim().split_whitespace().next())
+        .and_then(|v| v.split_whitespace().next())
         .and_then(|n| n.parse().ok())
         .unwrap_or(0)
 }
@@ -208,7 +208,7 @@ fn lspci_class(class: &str) -> Vec<String> {
     lines_of("lspci", &[])
         .into_iter()
         .filter(|l| l.contains(class))
-        .map(|l| l.splitn(2, ' ').nth(1).unwrap_or(&l).to_string())
+        .map(|l| l.split_once(' ').map(|x| x.1).unwrap_or(&l).to_string())
         .collect()
 }
 

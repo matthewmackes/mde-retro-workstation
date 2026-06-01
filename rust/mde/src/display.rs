@@ -1022,7 +1022,7 @@ fn settings_tab(state: &Display) -> Element<'_, Message> {
             }
             col.into()
         }
-        _ => label("No displays detected.").into(),
+        _ => label("No displays detected."),
     };
 
     let identify = button(text("Identify").size(metrics::UI_PX)).on_press(Message::Identify);
@@ -1043,7 +1043,7 @@ fn tab_content(state: &Display) -> Element<'_, Message> {
         2 => appearance_tab(state),
         3 => effects_tab(state),
         4 => settings_tab(state),
-        _ => label("?").into(),
+        _ => label("?"),
     }
 }
 
