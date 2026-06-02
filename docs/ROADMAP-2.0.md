@@ -1,9 +1,11 @@
 # MDE-Retro 2.0 — "Windows 10 era" — Roadmap (draft)
 
-> **Status: draft plan for refinement.** Authored from a 15-question survey against
-> the Windows 10 Field Guide. Being refined remotely (Ultraplan); once approved it
-> materializes into `rust/SPEC-windows10.md` + a `## 2.0 — Windows 10 era` section
-> of `docs/PROJECT_WORKLIST.md`. Mirror of `~/.claude/plans/serene-gliding-quail.md`.
+> **Status: materialized.** The Ultraplan refinement is done — a 43-agent pass
+> distilled the Windows 10 Field Guide (489pp) into the two deliverables it named:
+> **`rust/SPEC-windows10.md`** (the 21-epic design SPEC, 78 coherence fixes against
+> the 15 decisions) and the **`## 2.0 — Windows 10 era`** section of
+> `docs/PROJECT_WORKLIST.md` (200 milestone-tiered stories). Those two are now the
+> authority for 2.0 work; this file is the originating survey/decision record.
 
 ## Context
 
