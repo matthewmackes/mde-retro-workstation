@@ -195,6 +195,8 @@ struct Start {
     more_tiles: bool,
     show_recent: bool,
     show_suggested: bool,
+    /// Whether the left rail is hover-expanded to its labelled flyout (E1.4).
+    rail_expanded: bool,
 }
 
 #[to_layer_message]
@@ -202,6 +204,7 @@ struct Start {
 enum Message {
     Launch(String, bool), // shell command, run-in-terminal
     Mde(String),          // re-exec this binary with a subcommand (Power, …)
+    RailHover(bool),      // the left rail's hover-expand flyout (E1.4)
     RightClick(Ctx),      // open a context menu on a tile / app
     CtxPin,               // App: pin as a Start tile
     CtxUnpin,             // Tile: remove it
@@ -297,6 +300,7 @@ fn launch() -> Result<(), iced_layershell::Error> {
                     more_tiles: st.start_more_tiles,
                     show_recent: st.start_show_recent,
                     show_suggested: st.start_show_suggested,
+                    rail_expanded: false,
                 },
                 Task::none(),
             )
@@ -346,6 +350,7 @@ fn update(start: &mut Start, message: Message) -> Task<Message> {
             start_common::mde_self(&sub);
             exit(0);
         }
+        Message::RailHover(on) => start.rail_expanded = on,
         Message::RightClick(ctx) => start.context = Some(ctx),
         // App context: pin it as a Medium tile (no dup), persist, live-refresh.
         Message::CtxPin => {
@@ -435,7 +440,7 @@ fn open_in_explorer(dir: &str) {
 fn view(start: &Start) -> Element<'_, Message> {
     let regions = Row::new()
         .spacing(GAP)
-        .push(rail())
+        .push(rail(start.rail_expanded))
         .push(container(center_column(start)).width(Length::Fixed(COL_W)))
         .push(
             container(tiles_view(&start.tiles, start.more_tiles))
@@ -553,39 +558,120 @@ fn context_menu_view(ctx: &Ctx) -> Element<'static, Message> {
     .into()
 }
 
-/// The left icon rail: account avatar at the top, Power at the bottom. (System
-/// folders, Settings, and the hover-to-expand flyout are E1.4.)
-fn rail() -> Element<'static, Message> {
-    let avatar = container(crate::icons::icon_any(
-        &["system-users", "avatar-default"],
-        32,
-    ))
-    .padding(Padding {
-        top: 4.0,
-        right: 0.0,
-        bottom: 0.0,
-        left: 0.0,
-    })
-    .center_x(Length::Fill);
-    let power = button(
-        container(crate::icons::icon_any(
-            &["system-shutdown", "system-log-out"],
-            24,
+const RAIL_EXPANDED_W: f32 = 200.0;
+
+/// The left rail: account avatar (top), system folders, then Settings + Power
+/// (bottom). Always icon-only at `RAIL_W`; hovering expands it to a labelled
+/// flyout (E1.4). The Settings item opens `mde settings` — the Win10-era config
+/// route — never `mde control-panel`.
+fn rail(expanded: bool) -> Element<'static, Message> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let avatar = rail_row(&["system-users", "avatar-default"], "User", expanded, None);
+    let mut col = Column::new()
+        .width(Length::Fixed(if expanded {
+            RAIL_EXPANDED_W
+        } else {
+            RAIL_W
+        }))
+        .height(Length::Fill)
+        .push(avatar);
+    // State-driven system folders (the common Win10 set); each opens File
+    // Explorer at that folder. (Choosing which folders appear is E7.8a.)
+    for (icons, label, sub) in [
+        (
+            &["folder-documents", "user-documents"][..],
+            "Documents",
+            "Documents",
+        ),
+        (
+            &["folder-pictures", "user-pictures"][..],
+            "Pictures",
+            "Pictures",
+        ),
+        (
+            &["folder-download", "user-download"][..],
+            "Downloads",
+            "Downloads",
+        ),
+    ] {
+        let dir = format!("{home}/{sub}");
+        let cmd = format!("'{}' files '{dir}'", mde_path());
+        col = col.push(rail_row(
+            icons,
+            label,
+            expanded,
+            Some(Message::Launch(cmd, false)),
+        ));
+    }
+    col = col
+        .push(Space::new(Length::Fill, Length::Fill))
+        .push(rail_row(
+            &["preferences-system", "applications-system"],
+            "Settings",
+            expanded,
+            Some(Message::Mde("settings".into())),
         ))
-        .center_x(Length::Fill),
-    )
-    .on_press(Message::Mde("shutdown".into()))
-    .width(Length::Fill)
-    .style(start_common::tile_style());
-    container(
-        Column::new()
-            .width(Length::Fixed(RAIL_W))
-            .height(Length::Fill)
-            .push(avatar)
-            .push(Space::new(Length::Fill, Length::Fill))
-            .push(power),
-    )
-    .into()
+        .push(rail_row(
+            &["system-shutdown", "system-log-out"],
+            "Power",
+            expanded,
+            Some(Message::Mde("shutdown".into())),
+        ));
+    iced::widget::mouse_area(col)
+        .on_enter(Message::RailHover(true))
+        .on_exit(Message::RailHover(false))
+        .into()
+}
+
+/// One rail entry: a 24px icon centered in `RAIL_W`, plus a label when the rail
+/// is expanded. `msg` None ⇒ a non-clickable row (the avatar).
+fn rail_row(
+    icons: &[&str],
+    label: &str,
+    expanded: bool,
+    msg: Option<Message>,
+) -> Element<'static, Message> {
+    let icon = container(crate::icons::icon_any(icons, 24))
+        .width(Length::Fixed(RAIL_W))
+        .center_x(Length::Fixed(RAIL_W));
+    let content: Element<'static, Message> = if expanded {
+        Row::new()
+            .align_y(iced::alignment::Vertical::Center)
+            .push(icon)
+            .push(
+                text(label.to_string())
+                    .size(metrics::UI_PX)
+                    .color(palette::color(palette::MENU_TEXT)),
+            )
+            .into()
+    } else {
+        icon.into()
+    };
+    match msg {
+        Some(m) => button(content)
+            .on_press(m)
+            .width(Length::Fill)
+            .padding(0.0)
+            .style(start_common::tile_style())
+            .into(),
+        None => container(content)
+            .width(Length::Fill)
+            .padding(Padding {
+                top: 6.0,
+                right: 0.0,
+                bottom: 6.0,
+                left: 0.0,
+            })
+            .into(),
+    }
+}
+
+/// This binary's path, for the rail's `mde files <dir>` folder shortcuts.
+fn mde_path() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
+        .unwrap_or_else(|| "mde".to_string())
 }
 
 /// An accent-colored section / alphabet group header.
