@@ -145,23 +145,6 @@ pub fn accent_idx() -> u8 {
     ACCENT.load(Ordering::Relaxed)
 }
 
-// The Windows 10 UI accent slot (E7.1). Distinct from ACCENT (which only tints
-// icons): this index drives selection / highlight / active-title through the
-// `win10()` remap, so the Colors picker (E7.5) can recolor the whole shell. 0 =
-// the stock mode-shaded blue.
-static WIN10_ACCENT: AtomicU8 = AtomicU8::new(0);
-
-/// Set the Windows 10 UI accent (index into [`WIN10_ACCENTS`]). 0 keeps the
-/// stock mode-shaded blue; other indices select a fixed preset.
-pub fn set_win10_accent(idx: u8) {
-    WIN10_ACCENT.store(idx, Ordering::Relaxed);
-}
-
-/// The active Windows 10 UI accent index.
-pub fn win10_accent_idx() -> u8 {
-    WIN10_ACCENT.load(Ordering::Relaxed)
-}
-
 /// Whether the BeOS theme is active.
 pub fn is_beos() -> bool {
     theme() == Theme::Beos
@@ -370,109 +353,15 @@ fn carbon(rgb: Rgb) -> Rgb {
     }
 }
 
-/// The Windows 10 preset accent colors — the Colors picker's swatch grid (E7.5).
-/// Index 0 is the stock blue (mode-shaded in [`win10_accent`]); the rest are the
-/// fixed picks the user can choose. §2.1: the only place these accent hexes live.
-pub const WIN10_ACCENTS: &[Rgb] = &[
-    (0x00, 0x78, 0xd4), // 0 stock blue (default; mode-shaded below)
-    (0x00, 0x99, 0xbc), // 1 teal
-    (0x10, 0x89, 0x3e), // 2 green
-    (0xc1, 0x9c, 0x00), // 3 gold
-    (0xe7, 0x48, 0x56), // 4 red
-    (0x88, 0x17, 0x98), // 5 purple
-    (0x00, 0x63, 0xb1), // 6 navy
-    (0x76, 0x76, 0x76), // 7 gray
-];
-
-/// The active Windows 10 interactive accent (UI accent — selection, focus, Start
-/// tile highlight, Action Center toggles). A brighter, cyan-er blue than Carbon
-/// Blue 60 — that hue shift is the era's main tell. Index 0 keeps the stock
-/// mode-shaded blue; the Colors picker (E7.5) sets other indices via
-/// [`set_win10_accent`], persisted as `state.win10_accent`.
-pub fn win10_accent() -> Rgb {
-    let idx = win10_accent_idx() as usize;
-    if idx == 0 {
-        win10_stock()
-    } else {
-        WIN10_ACCENTS.get(idx).copied().unwrap_or(WIN10_ACCENTS[0])
-    }
-}
-
-/// The stock Win10 accent for the active mode — index 0's mode-shaded blue (the
-/// one place the era's signature hue lives).
-fn win10_stock() -> Rgb {
-    if is_dark() {
-        (0x28, 0x99, 0xf5) // brighter blue on dark
-    } else {
-        (0x00, 0x78, 0xd4) // Windows 10 stock accent on light
-    }
-}
-
-/// The Windows 10 preset accent `idx` as an `iced::Color` for the Colors swatch
-/// grid (E7.5) — index 0 is the stock mode-shaded blue. Returns the literal
-/// preset (no role remap), so a swatch shows its own color.
-pub fn win10_accent_swatch(idx: u8) -> iced::Color {
-    let rgb = if idx == 0 {
-        win10_stock()
-    } else {
-        WIN10_ACCENTS
-            .get(idx as usize)
-            .copied()
-            .unwrap_or(WIN10_ACCENTS[0])
-    };
-    iced::Color::from_rgb8(rgb.0, rgb.1, rgb.2)
-}
-
-/// Map a Win2000 role color to its Windows 10 token. Per D2 the Win10 look is a
-/// Carbon *variant*: it shares Carbon's flat-neutral skeleton and differs only in
-/// (a) the accent hue ([`win10_accent`] instead of Carbon Blue) and (b) a few
-/// cooler neutral temperatures (panels, desktop, header). Everything else —
-/// sentinel passthrough, text invert, danger red, border grays — delegates to
-/// [`carbon`] verbatim, so the two eras can never drift apart on the skeleton.
-fn win10(rgb: Rgb) -> Rgb {
-    let dark = is_dark();
-    let accent = win10_accent();
-    match rgb {
-        // Accent family -> the Win10 accent.
-        (0x0a, 0x24, 0x6a) => accent, // HIGHLIGHT + ACTIVE_TITLE
-        (0xa6, 0xca, 0xf0) => accent, // ACTIVE_TITLE_GRADIENT
-        (0x1d, 0x5c, 0xa8) => accent, // INFO_BAND (web-view accent/links)
-        (0x16, 0x3a, 0xa8) => accent, // SETUP_PROGRESS
-        (0x1c, 0x4a, 0x8f) => accent, // setup-wizard blue (top)
-        // Cooler Win10 neutrals (the secondary era tell).
-        (0xd4, 0xd0, 0xc8) => {
-            if dark {
-                (0x2b, 0x2b, 0x2b)
-            } else {
-                (0xf3, 0xf3, 0xf3)
-            }
-        } // panel / menu / face
-        (0x3a, 0x6e, 0xa5) => {
-            if dark {
-                (0x1f, 0x1f, 0x1f)
-            } else {
-                (0xe6, 0xe6, 0xe6)
-            }
-        } // desktop
-        (0xd4, 0xd0, 0xc7) => {
-            if dark {
-                (0x1f, 0x1f, 0x1f)
-            } else {
-                (0xff, 0xff, 0xff)
-            }
-        } // shell header
-        // Everything else shares the Carbon flat-neutral skeleton verbatim.
-        other => carbon(other),
-    }
-}
-
 /// Convert a palette [`Rgb`] into an `iced::Color`, applying the active theme.
 pub fn color(rgb: Rgb) -> iced::Color {
     let rgb = match theme() {
         Theme::Win2000 => rgb,
         Theme::Beos => beos(rgb),
-        Theme::Carbon => carbon(rgb),
-        Theme::Windows10 => win10(rgb),
+        // The Windows 10 era shares Carbon's coloring + accent verbatim (a
+        // Carbon-skinned modern *layout*, not a distinct palette); its former blue
+        // accent + accent picker were retired in the MackesDE rebrand.
+        Theme::Carbon | Theme::Windows10 => carbon(rgb),
     };
     iced::Color::from_rgb8(rgb.0, rgb.1, rgb.2)
 }
@@ -484,8 +373,10 @@ pub fn hex(rgb: Rgb) -> String {
     let rgb = match theme() {
         Theme::Win2000 => rgb,
         Theme::Beos => beos(rgb),
-        Theme::Carbon => carbon(rgb),
-        Theme::Windows10 => win10(rgb),
+        // The Windows 10 era shares Carbon's coloring + accent verbatim (a
+        // Carbon-skinned modern *layout*, not a distinct palette); its former blue
+        // accent + accent picker were retired in the MackesDE rebrand.
+        Theme::Carbon | Theme::Windows10 => carbon(rgb),
     };
     format!("#{:02x}{:02x}{:02x}", rgb.0, rgb.1, rgb.2)
 }

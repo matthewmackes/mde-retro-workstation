@@ -383,7 +383,6 @@ enum Message {
     Open, // activate the current page's backend
     Back,
     SetDark(bool),
-    SetWin10Accent(u8),
     Search(String),
     Jump(usize, usize), // (category, page) from a search result
     // Background page (E7.4).
@@ -568,11 +567,6 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
             palette::set_dark(d);
             persist(state);
         }
-        Message::SetWin10Accent(a) => {
-            state.win10_accent = a;
-            palette::set_win10_accent(a);
-            persist(state);
-        }
         Message::BgSource(s) => state.bg_source = s,
         Message::BgSelect(i) => state.bg_selected = Some(i),
         Message::BgMode(m) => state.bg_mode = m,
@@ -655,7 +649,8 @@ fn save_theme(state: &mut Settings) {
     let _ = crate::state::save(&st);
 }
 
-/// Apply a saved theme bundle: wallpaper (swaybg) + accent + mode, all at once.
+/// Apply a saved theme bundle: wallpaper (swaybg) + mode. (The accent is no
+/// longer per-theme — Carbon Blue is fixed across eras after the rebrand.)
 fn apply_theme(state: &mut Settings, i: usize) {
     let Some(t) = state.themes.get(i).cloned() else {
         return;
@@ -663,8 +658,6 @@ fn apply_theme(state: &mut Settings, i: usize) {
     if !t.wallpaper.is_empty() {
         let _ = outputs::set_wallpaper(&t.wallpaper, state.bg_mode.swaybg());
     }
-    state.win10_accent = t.accent;
-    palette::set_win10_accent(t.accent);
     state.dark = t.dark;
     palette::set_dark(t.dark);
     persist(state);
@@ -1070,8 +1063,9 @@ fn open_button<'a>(title: &str, present: bool) -> Element<'a, Message> {
         .into()
 }
 
-/// Personalization ▸ Colors (E6.4): Light/Dark choice + accent swatches. Both
-/// re-skin the window live and persist to `state.rs`.
+/// Personalization ▸ Colors (E6.4): the Light/Dark choice (re-skins live + persists).
+/// The accent picker was retired in the MackesDE rebrand — the accent is now
+/// Carbon Blue for every era, not a per-user pick.
 fn colors_page(state: &Settings) -> Element<'_, Message> {
     let mode_label = text("Choose your color")
         .size(metrics::UI_PX)
@@ -1080,23 +1074,7 @@ fn colors_page(state: &Settings) -> Element<'_, Message> {
     let dark = mode_button("Dark", state.dark, Message::SetDark(true));
     let modes = Row::new().spacing(8.0).push(light).push(dark);
 
-    let accent_label = text("Choose your accent color")
-        .size(metrics::UI_PX)
-        .color(palette::color(palette::WINDOW_TEXT));
-    let mut swatches = Row::new().spacing(8.0);
-    for idx in 0..palette::WIN10_ACCENTS.len() as u8 {
-        swatches = swatches.push(win10_swatch(idx, idx == state.win10_accent));
-    }
-
-    column![
-        mode_label,
-        modes,
-        Space::with_height(Length::Fixed(8.0)),
-        accent_label,
-        swatches
-    ]
-    .spacing(8.0)
-    .into()
+    column![mode_label, modes].spacing(8.0).into()
 }
 
 /// Personalization ▸ Background (E7.4): a live preview, a Picture/Solid/
@@ -1267,7 +1245,8 @@ fn themes_page(state: &Settings) -> Element<'_, Message> {
 /// bundle keeps the current background) over its name. Click re-applies it.
 fn theme_tile(i: usize, t: &crate::state::SavedTheme) -> Element<'static, Message> {
     let preview: Element<Message> = if t.wallpaper.is_empty() {
-        let c = palette::win10_accent_swatch(t.accent);
+        // No per-theme accent anymore (rebrand) — preview the fixed Carbon accent.
+        let c = palette::accent();
         container(Space::new(Length::Fixed(120.0), Length::Fixed(70.0)))
             .style(move |_| container::Style {
                 background: Some(Background::Color(c)),
@@ -1514,38 +1493,9 @@ fn mode_button<'a>(label: &'a str, selected: bool, msg: Message) -> Element<'a, 
         .into()
 }
 
-fn win10_swatch<'a>(idx: u8, selected: bool) -> Element<'a, Message> {
-    let color = palette::win10_accent_swatch(idx);
-    let sw = container(Space::new(Length::Fixed(34.0), Length::Fixed(34.0))).style(move |_t| {
-        container::Style {
-            background: Some(Background::Color(color)),
-            border: Border {
-                color: if selected {
-                    palette::color(palette::WINDOW_TEXT)
-                } else {
-                    palette::color(palette::WINDOW_FRAME)
-                },
-                width: if selected { 2.0 } else { 1.0 },
-                radius: 2.0.into(),
-            },
-            ..container::Style::default()
-        }
-    });
-    mouse_area(sw).on_press(Message::SetWin10Accent(idx)).into()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn win10_accent_indices_in_range() {
-        // The Colors swatch grid offers exactly the palette's preset accents.
-        assert!(palette::WIN10_ACCENTS.len() >= 2);
-        for idx in 0..palette::WIN10_ACCENTS.len() as u8 {
-            let _ = palette::win10_accent_swatch(idx);
-        }
-    }
 
     #[test]
     fn live_pages_map_to_real_backends() {

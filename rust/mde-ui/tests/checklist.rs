@@ -97,70 +97,55 @@ fn color_conversion_is_exact_8bit() {
     assert_eq!(ch(c.b), 0xa5);
 }
 
-/// E0.8 — pin the Windows 10 era remap (§2.2): the accent value, the sentinel
-/// passthroughs, and a neutral. The atomics are process-global, so this holds
-/// THEME_GUARD and restores the Win2000/dark default before releasing.
+/// MackesDE rebrand (§2.2): the Windows 10 era now uses **Carbon's coloring
+/// verbatim** — its former blue accent + per-user accent picker were retired, so
+/// the era is a Carbon-skinned modern *layout*, not a distinct palette. Pin that
+/// `color()` under `Theme::Windows10` equals `Theme::Carbon` for a representative
+/// role set in BOTH modes, so a future re-divergence fails CI. The atomics are
+/// process-global, so this holds THEME_GUARD and restores the default before
+/// releasing. (Supersedes the old `windows10_remap_pins`, which pinned the
+/// now-removed Win10 blue.)
 #[test]
-fn windows10_remap_pins() {
+fn windows10_uses_carbon_coloring() {
     use mde_ui::palette::Theme;
     let _g = THEME_GUARD.lock().unwrap();
+
+    let roles = [
+        palette::HIGHLIGHT,
+        palette::ACTIVE_TITLE,
+        palette::WINDOW,
+        palette::WINDOW_TEXT,
+        palette::MENU,
+        palette::BACKGROUND,
+        palette::TITLE_TEXT,
+        palette::WINDOW_FRAME,
+        palette::INFO_BAND,
+    ];
+    let rgb = |c: iced::Color| (ch(c.r), ch(c.g), ch(c.b));
+    for dark in [false, true] {
+        palette::set_theme(Theme::Carbon);
+        palette::set_dark(dark);
+        let carbon: Vec<_> = roles.iter().map(|&r| rgb(palette::color(r))).collect();
+
+        palette::set_theme(Theme::Windows10);
+        palette::set_dark(dark);
+        for (i, &r) in roles.iter().enumerate() {
+            assert_eq!(
+                rgb(palette::color(r)),
+                carbon[i],
+                "Win10 role #{i} diverges from Carbon (dark={dark})"
+            );
+        }
+    }
+
+    // The accent is now Carbon Blue, never the retired Win10 blue (0x0078d4).
     palette::set_theme(Theme::Windows10);
-
-    // The stock Win10 accent, pinned in both modes.
-    palette::set_dark(false);
-    assert_eq!(palette::win10_accent(), (0x00, 0x78, 0xd4));
-    let hi = palette::color(palette::HIGHLIGHT); // selection routes to the accent
-    assert_eq!((ch(hi.r), ch(hi.g), ch(hi.b)), (0x00, 0x78, 0xd4));
     palette::set_dark(true);
-    assert_eq!(palette::win10_accent(), (0x28, 0x99, 0xf5));
+    assert_eq!(
+        rgb(palette::color(palette::HIGHLIGHT)),
+        palette::carbon_accent()
+    );
 
-    // The settable accent slot (E7.1): a non-zero index picks a fixed preset
-    // and it reaches selection through the same remap.
-    palette::set_dark(false);
-    palette::set_win10_accent(4); // red preset
-    assert_eq!(palette::win10_accent(), palette::WIN10_ACCENTS[4]);
-    assert_eq!(palette::win10_accent(), (0xe7, 0x48, 0x56));
-    let hi = palette::color(palette::HIGHLIGHT);
-    assert_eq!((ch(hi.r), ch(hi.g), ch(hi.b)), (0xe7, 0x48, 0x56));
-    palette::set_win10_accent(0); // back to stock
-
-    // Sentinel passthrough: white title text stays light; the frame sentinel
-    // becomes a border gray, never black text.
-    let tt = palette::color(palette::TITLE_TEXT);
-    assert!(ch(tt.r) > 0xf0 && ch(tt.g) > 0xf0 && ch(tt.b) > 0xf0);
-    let fr = palette::color(palette::WINDOW_FRAME);
-    assert!(ch(fr.r) > 0x10 && (ch(fr.r), ch(fr.g), ch(fr.b)) != (0x00, 0x00, 0x00));
-
-    // A neutral: the WINDOW field surface stays white in light mode.
-    palette::set_dark(false);
-    let w = palette::color(palette::WINDOW);
-    assert_eq!((ch(w.r), ch(w.g), ch(w.b)), (0xff, 0xff, 0xff));
-
-    // E20.1 — ACTIVE_TITLE routes to the accent too (the focused title bar IS the
-    // accent under Win10), pinned in both modes from its own raw const (distinct
-    // from HIGHLIGHT, so a divergent ACTIVE_TITLE value would be caught here).
-    palette::set_dark(false);
-    let at = palette::color(palette::ACTIVE_TITLE);
-    assert_eq!((ch(at.r), ch(at.g), ch(at.b)), palette::win10_accent());
-    palette::set_dark(true);
-    let at = palette::color(palette::ACTIVE_TITLE);
-    assert_eq!((ch(at.r), ch(at.g), ch(at.b)), palette::win10_accent());
-
-    // E20.1 — the desktop + panel/menu surface neutrals (the cool-neutral era
-    // tell), pinned in BOTH modes so a light/dark surface drift fails CI.
-    palette::set_dark(false);
-    let bg = palette::color(palette::BACKGROUND); // desktop
-    assert_eq!((ch(bg.r), ch(bg.g), ch(bg.b)), (0xe6, 0xe6, 0xe6));
-    let mn = palette::color(palette::MENU); // panel / menu / face
-    assert_eq!((ch(mn.r), ch(mn.g), ch(mn.b)), (0xf3, 0xf3, 0xf3));
-    palette::set_dark(true);
-    let bg = palette::color(palette::BACKGROUND);
-    assert_eq!((ch(bg.r), ch(bg.g), ch(bg.b)), (0x1f, 0x1f, 0x1f));
-    let mn = palette::color(palette::MENU);
-    assert_eq!((ch(mn.r), ch(mn.g), ch(mn.b)), (0x2b, 0x2b, 0x2b));
-
-    // Restore the process-global default for other tests.
-    palette::set_win10_accent(0);
     palette::set_theme(Theme::Win2000);
     palette::set_dark(true);
 }
