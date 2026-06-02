@@ -134,6 +134,13 @@ fn main() -> ExitCode {
         "task-view" => task_view::run(rest),
         "search" => search::run(rest),
         "settings" => settings::run(rest),
+        // Shortcut: `mde personalization [--page <name>]` opens Settings straight
+        // to the Personalization category (the desktop "Personalize" target).
+        "personalization" => {
+            let mut a = vec!["personalization".to_string()];
+            a.extend_from_slice(rest);
+            settings::run(&a)
+        }
         // Per-era Start dispatcher for the labwc keybind: opens the right Start
         // for the active theme (the startup block above already set it).
         "start" => {

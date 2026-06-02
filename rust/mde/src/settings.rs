@@ -146,12 +146,12 @@ const CATEGORIES: &[Category] = &[
         icons: &["preferences-desktop-wallpaper", "preferences-desktop-theme"],
         pages: &[
             Page {
-                title: "Colors",
-                kind: Kind::Colors,
-            },
-            Page {
                 title: "Background",
                 kind: Kind::Mde("display"),
+            },
+            Page {
+                title: "Colors",
+                kind: Kind::Colors,
             },
             Page {
                 title: "Lock screen",
@@ -305,21 +305,38 @@ enum Message {
 }
 
 pub fn run(args: &[String]) -> ExitCode {
-    if matches!(args.first().map(String::as_str), Some("--list")) {
+    if args.iter().any(|a| a == "--list") {
         return list();
     }
-    // Optional deep-link: `mde settings personalization` opens straight to that
-    // category; an arg that isn't a category (`mde settings display`) pre-fills
-    // the Home search box instead (a Win10 `ms-settings:`-style entry, and the
-    // way to script a drill-in / search capture).
-    let arg = args.join(" ").trim().to_string();
-    let initial_cat = category_index(&arg);
+    // Parse a positional category name plus an optional `--page <name>` deep-link
+    // (E7.3): `mde settings personalization --page taskbar`. A positional that
+    // isn't a category pre-fills the Home search box instead (`mde settings
+    // display`).
+    let mut cat_arg = String::new();
+    let mut page_arg: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--page" {
+            page_arg = it.next().cloned();
+        } else if !a.starts_with("--") {
+            if !cat_arg.is_empty() {
+                cat_arg.push(' ');
+            }
+            cat_arg.push_str(a);
+        }
+    }
+    let cat_arg = cat_arg.trim().to_string();
+    let initial_cat = category_index(&cat_arg);
+    let initial_page = match (initial_cat, &page_arg) {
+        (Some(c), Some(name)) => page_index(c, name).unwrap_or(0),
+        _ => 0,
+    };
     let initial_search = if initial_cat.is_none() {
-        arg
+        cat_arg
     } else {
         String::new()
     };
-    match gui(initial_cat, initial_search) {
+    match gui(initial_cat, initial_page, initial_search) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("mde settings: {e}");
@@ -334,6 +351,17 @@ fn category_index(name: &str) -> Option<usize> {
     CATEGORIES
         .iter()
         .position(|c| c.title.to_lowercase().contains(&n))
+}
+
+/// First page in `cat` whose title contains `name` (case-insensitive) — the
+/// `--page` deep-link target.
+fn page_index(cat: usize, name: &str) -> Option<usize> {
+    let n = name.to_lowercase();
+    CATEGORIES
+        .get(cat)?
+        .pages
+        .iter()
+        .position(|p| p.title.to_lowercase().contains(&n))
 }
 
 /// `mde settings --list` — print the page → backend map for every live page.
@@ -353,7 +381,7 @@ fn list() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn gui(initial: Option<usize>, initial_search: String) -> iced::Result {
+fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> iced::Result {
     iced::application(|_: &Settings| "Settings - mde".to_string(), update, view)
         .theme(|_| iced::Theme::Light)
         .window_size(iced::Size::new(940.0, 640.0))
@@ -366,7 +394,7 @@ fn gui(initial: Option<usize>, initial_search: String) -> iced::Result {
             let st = crate::state::load();
             let mut s = Settings {
                 view: initial.map(View::Category).unwrap_or(View::Home),
-                page: 0,
+                page: initial_page,
                 dark: st.theme_mode != "light",
                 accent: accent_index(&st.icon_color),
                 search: initial_search,
