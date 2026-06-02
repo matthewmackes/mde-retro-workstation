@@ -9,10 +9,14 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 /// One item pinned to the top of the Start menu.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PinnedItem {
     pub name: String,
     pub command: String,
+    /// How many times this pin has been launched — the Win10 Start "Suggested"
+    /// ranking. `#[serde(default)]` so old menu.json files load (count 0).
+    #[serde(default)]
+    pub launch_count: u32,
 }
 
 /// A Windows 10 Start tile size (the right tile area). Each maps to a grid span
@@ -199,10 +203,12 @@ mod tests {
                 PinnedItem {
                     name: "Files".into(),
                     command: "mde files".into(),
+                    launch_count: 7,
                 },
                 PinnedItem {
                     name: "Terminal".into(),
                     command: "foot".into(),
+                    launch_count: 0,
                 },
             ],
             start_small_icons: true,
@@ -244,6 +250,7 @@ mod tests {
             pinned: vec![PinnedItem {
                 name: "Files".into(),
                 command: "mde files".into(),
+                ..Default::default()
             }],
             ..Default::default()
         };
@@ -306,7 +313,8 @@ mod tests {
             s.pinned,
             vec![PinnedItem {
                 name: "X".into(),
-                command: "x".into()
+                command: "x".into(),
+                ..Default::default()
             }]
         );
     }

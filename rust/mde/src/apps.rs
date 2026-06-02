@@ -13,6 +13,9 @@ pub struct App {
     pub name: String,
     pub exec: String,
     pub terminal: bool,
+    /// `.desktop` file mtime (Unix seconds) — the Win10 "Recently Added" sort key
+    /// (newest-installed apps); 0 if unknown.
+    pub mtime: u64,
 }
 
 /// Programs grouped by folder, in menu order.
@@ -111,11 +114,18 @@ fn parse(path: &PathBuf) -> Option<(App, String)> {
     if exec.is_empty() {
         return None;
     }
+    let mtime = fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     Some((
         App {
             name,
             exec,
             terminal,
+            mtime,
         },
         category(&cats),
     ))

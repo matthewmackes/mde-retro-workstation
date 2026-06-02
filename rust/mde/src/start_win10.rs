@@ -149,14 +149,20 @@ fn persist(st: &MenuState) -> ExitCode {
 // --- the GUI overlay ---------------------------------------------------------
 
 /// One installed application, flattened out of the per-folder `apps::programs()`.
+#[derive(Clone)]
 struct AppEntry {
     name: String,
     exec: String,
     terminal: bool,
+    mtime: u64,
 }
 
 struct Start {
     apps: Vec<AppEntry>,
+    /// Newest-installed apps (by `.desktop` mtime) — the "Recently added" section.
+    recent: Vec<AppEntry>,
+    /// Most-launched pins (by `launch_count`) — the "Suggested" section.
+    suggested: Vec<(String, String)>,
     tiles: Vec<StartTile>,
 }
 
@@ -194,11 +200,30 @@ fn all_apps() -> Vec<AppEntry> {
             name: a.name,
             exec: a.exec,
             terminal: a.terminal,
+            mtime: a.mtime,
         })
         .collect();
     v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     v.dedup_by(|a, b| a.name.eq_ignore_ascii_case(&b.name));
     v
+}
+
+/// The N newest-installed apps (by `.desktop` mtime), for "Recently added".
+fn recent_apps(apps: &[AppEntry], n: usize) -> Vec<AppEntry> {
+    let mut by_mtime: Vec<AppEntry> = apps.iter().filter(|a| a.mtime > 0).cloned().collect();
+    by_mtime.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    by_mtime.truncate(n);
+    by_mtime
+}
+
+/// The most-launched pins (launch_count > 0, descending), for "Suggested".
+fn suggested_pins(state: &MenuState, n: usize) -> Vec<(String, String)> {
+    let mut pins: Vec<_> = state.pinned.iter().filter(|p| p.launch_count > 0).collect();
+    pins.sort_by(|a, b| b.launch_count.cmp(&a.launch_count));
+    pins.into_iter()
+        .take(n)
+        .map(|p| (p.name.clone(), p.command.clone()))
+        .collect()
 }
 
 fn launch() -> Result<(), iced_layershell::Error> {
@@ -220,10 +245,16 @@ fn launch() -> Result<(), iced_layershell::Error> {
             ..Default::default()
         })
         .run_with(|| {
+            let st = state::load();
+            let apps = all_apps();
+            let recent = recent_apps(&apps, 5);
+            let suggested = suggested_pins(&st, 4);
             (
                 Start {
-                    apps: all_apps(),
-                    tiles: state::seed_start_tiles(&state::load()),
+                    recent,
+                    suggested,
+                    tiles: state::seed_start_tiles(&st),
+                    apps,
                 },
                 Task::none(),
             )
@@ -248,9 +279,24 @@ fn subscription(_: &Start) -> iced::Subscription<Message> {
     })
 }
 
+/// Bump a pin's launch_count (the Suggested ranking) when its command launches
+/// from Start, then persist. No-op when the launched command isn't pinned.
+fn bump_launch_count(cmd: &str) {
+    let mut st = state::load();
+    let mut hit = false;
+    for p in st.pinned.iter_mut().filter(|p| p.command == cmd) {
+        p.launch_count = p.launch_count.saturating_add(1);
+        hit = true;
+    }
+    if hit {
+        let _ = state::save(&st);
+    }
+}
+
 fn update(_: &mut Start, message: Message) -> Task<Message> {
     match message {
         Message::Launch(cmd, terminal) => {
+            bump_launch_count(&cmd);
             start_common::launch_cmd(&cmd, terminal);
             exit(0);
         }
@@ -273,7 +319,7 @@ fn view(start: &Start) -> Element<'_, Message> {
     let regions = Row::new()
         .spacing(GAP)
         .push(rail())
-        .push(container(all_apps_view(&start.apps)).width(Length::Fixed(COL_W)))
+        .push(container(center_column(start)).width(Length::Fixed(COL_W)))
         .push(container(tiles_view(&start.tiles)).width(Length::Fixed(TILES_W + 16.0)));
 
     let panel = container(container(regions).padding(8.0))
@@ -349,11 +395,62 @@ fn rail() -> Element<'static, Message> {
     .into()
 }
 
-/// The center All-Apps list: every installed app under #/A–Z group headers.
-fn all_apps_view(apps: &[AppEntry]) -> Element<'_, Message> {
+/// An accent-colored section / alphabet group header.
+fn accent_header(label: String) -> Element<'static, Message> {
+    container(
+        text(label)
+            .size(metrics::UI_PX)
+            .style(|_: &iced::Theme| text::Style {
+                color: Some(palette::accent()),
+            }),
+    )
+    .padding(Padding {
+        top: 4.0,
+        right: 0.0,
+        bottom: 1.0,
+        left: 6.0,
+    })
+    .into()
+}
+
+/// A launchable app/pin row: icon + name, accent highlight on hover.
+fn app_row(name: String, exec: String, terminal: bool) -> Element<'static, Message> {
+    let icon = crate::icons::icon_any(&[name.to_lowercase().as_str()], 16);
+    button(
+        row![icon, text(name).size(metrics::UI_PX)]
+            .spacing(8.0)
+            .align_y(Vertical::Center),
+    )
+    .on_press(Message::Launch(exec, terminal))
+    .width(Length::Fill)
+    .padding(Padding {
+        top: 3.0,
+        right: 6.0,
+        bottom: 3.0,
+        left: 6.0,
+    })
+    .style(row_style())
+    .into()
+}
+
+/// The center column: Recently added + Suggested (from real data, hidden when
+/// empty) then the #/A–Z All-Apps list — all in one scrollable.
+fn center_column(start: &Start) -> Element<'static, Message> {
     let mut col = Column::new().spacing(1.0).width(Length::Fill);
+    if !start.recent.is_empty() {
+        col = col.push(accent_header("Recently added".into()));
+        for a in &start.recent {
+            col = col.push(app_row(a.name.clone(), a.exec.clone(), a.terminal));
+        }
+    }
+    if !start.suggested.is_empty() {
+        col = col.push(accent_header("Suggested".into()));
+        for (name, cmd) in &start.suggested {
+            col = col.push(app_row(name.clone(), cmd.clone(), false));
+        }
+    }
     let mut last = '\0';
-    for a in apps {
+    for a in &start.apps {
         let initial = a
             .name
             .chars()
@@ -368,38 +465,9 @@ fn all_apps_view(apps: &[AppEntry]) -> Element<'_, Message> {
             .unwrap_or('#');
         if initial != last {
             last = initial;
-            col = col.push(
-                container(text(initial.to_string()).size(metrics::UI_PX).style(
-                    |_: &iced::Theme| text::Style {
-                        color: Some(palette::accent()),
-                    },
-                ))
-                .padding(Padding {
-                    top: 4.0,
-                    right: 0.0,
-                    bottom: 1.0,
-                    left: 6.0,
-                }),
-            );
+            col = col.push(accent_header(initial.to_string()));
         }
-        let key = a.name.to_lowercase();
-        let icon = crate::icons::icon_any(&[key.as_str()], 16);
-        col = col.push(
-            button(
-                row![icon, text(a.name.as_str()).size(metrics::UI_PX)]
-                    .spacing(8.0)
-                    .align_y(Vertical::Center),
-            )
-            .on_press(Message::Launch(a.exec.clone(), a.terminal))
-            .width(Length::Fill)
-            .padding(Padding {
-                top: 3.0,
-                right: 6.0,
-                bottom: 3.0,
-                left: 6.0,
-            })
-            .style(row_style()),
-        );
+        col = col.push(app_row(a.name.clone(), a.exec.clone(), a.terminal));
     }
     scrollable(col).style(mde_ui::scrollbar).into()
 }

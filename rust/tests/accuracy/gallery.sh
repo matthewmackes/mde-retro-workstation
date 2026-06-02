@@ -118,9 +118,10 @@ for era in "carbon:carbon::0,0 1280x40" \
     # The Win10 tiled Start only exists in the Windows 10 era. Seed a few tiles
     # (one widened) so the capture exercises the right tile grid at distinct sizes.
     if [[ "$label" == windows10 ]]; then
-        printf '{"theme":"windows10","theme_mode":"dark","pinned":[{"name":"Files","command":"mde files"},{"name":"Firefox","command":"firefox"},{"name":"Terminal","command":"foot"}]}\n' \
+        printf '{"theme":"windows10","theme_mode":"dark","pinned":[{"name":"Files","command":"mde files"},{"name":"Firefox","command":"firefox","launch_count":5},{"name":"Terminal","command":"foot"}]}\n' \
             > "$era_cfg/mde/menu.json"
         "$bin" start-win10 --resize Files wide >/dev/null 2>&1
+        rm -f "$RT/mde-start-win10.pid" # a stale singleton would make Start exit blank
         shot "start-win10" --wait 2.6 start-win10
     fi
 done

@@ -105,9 +105,11 @@ fn pin(args: &[String]) -> ExitCode {
     let command = args[1..].join(" ");
     let mut state = crate::state::load();
     if !state.pinned.iter().any(|p| p.name == name) {
-        state
-            .pinned
-            .push(crate::state::PinnedItem { name, command });
+        state.pinned.push(crate::state::PinnedItem {
+            name,
+            command,
+            ..Default::default()
+        });
         if let Err(e) = crate::state::save(&state) {
             eprintln!("mde menu: could not save pins: {e}");
             return ExitCode::FAILURE;
@@ -475,6 +477,7 @@ fn update(menu: &mut Menu, message: Message) -> Task<Message> {
                         st.pinned.push(crate::state::PinnedItem {
                             name: name.clone(),
                             command,
+                            ..Default::default()
                         });
                         let _ = crate::state::save(&st);
                         menu.pinned.push(name);
