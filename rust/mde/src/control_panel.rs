@@ -27,13 +27,29 @@ pub fn run(args: &[String]) -> ExitCode {
         }
         Some("--launch") => launch_n(args.get(1)),
         Some("--install-missing") => install_missing(),
-        _ => match gui() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("mde control-panel: {e}");
-                ExitCode::FAILURE
+        _ => {
+            // Per-era routing (E6.7): under the Windows 10 theme the classic
+            // Control Panel is superseded by the modern Settings app, so the
+            // bare `mde control-panel` (Start "Settings", desktop menus, panel)
+            // opens Settings instead. The `--list`/`--launch`/`--install-missing`
+            // CLI arms stay Control Panel (they're scripting hooks). Other eras
+            // (Carbon default, Win2000) keep the Control Panel unchanged.
+            if mde_ui::palette::is_windows10() {
+                let mde = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.to_str().map(String::from))
+                    .unwrap_or_else(|| "mde".to_string());
+                let _ = std::process::Command::new(mde).arg("settings").spawn();
+                return ExitCode::SUCCESS;
             }
-        },
+            match gui() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("mde control-panel: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
     }
 }
 
