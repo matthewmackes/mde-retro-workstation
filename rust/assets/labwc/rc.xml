@@ -83,6 +83,11 @@
     <keybind key="W-e"><action name="Execute"><command>mde files</command></action></keybind>
     <keybind key="W-a"><action name="Execute"><command>mde action-center</command></action></keybind>
     <keybind key="W-Tab"><action name="Execute"><command>mde task-view</command></action></keybind>
+    <!-- Win10 Search (Win+S) and Quick Access / power-user menu (Win+X). Search
+         self-gates to the Windows 10 theme and otherwise falls through to the
+         classic Start menu. -->
+    <keybind key="W-s"><action name="Execute"><command>mde search</command></action></keybind>
+    <keybind key="W-x"><action name="Execute"><command>mde popup quickaccess</command></action></keybind>
     <keybind key="W-r"><action name="Execute"><command>mde run</command></action></keybind>
     <keybind key="W-Return"><action name="Execute"><command>foot</command></action></keybind>
 
