@@ -102,9 +102,17 @@ confirmed; full table in `docs/COMPLIANCE.md`). All 14 resolved this pass:**
 
 - [ ] **Mobile Devices (native KDE Connect)** — 15-Q spec in [[mde-kdeconnect]].
   Shared crate `matthewmackes/MDE-KDECnt-Rust` (public) stands up the protocol core
-  (✓ Phase 1: extracted + 181 tests). Remaining: [ ] generalize the host (Transport
-  trait + event stream) + complete the LAN transport (UDP 1716 + rustls) in the
-  shared crate; [ ] rewire MDE + MDE-Retro to depend on it; [ ] `mde connect`
+  (✓ Phase 1: extracted + 181 tests). **E9-unblock in progress (2026-06-02):** the
+  `mde-kdc-host` crate was added to the shared workspace (commit `edccc67`, local —
+  unpushed) — **✓ host increment 1**: `PeerId` + `HostError` + the event stream
+  (`HostEvent`/`EventStream`) + the on-disk `PairingStore` at `~/.config/mde/connect/`
+  (RSA-2048 identity keygen via the `rsa` crate, sign/verify via the proto's
+  ring-backed `PairingKeyPair`, `devices.toml` atomic persistence, and a
+  `mde_kdc_proto::crypto::KeyStore` impl), all standalone-unit-tested (7 tests, incl.
+  the rsa→ring PKCS#8 interop; proto's 181 still green). Remaining: [ ] host increment 2
+  — the `Transport` trait + in-process loopback; [ ] host increment 3 — the LAN transport
+  (UDP 1716 discovery + rustls TCP) + router; [ ] push MDE-KDECnt-Rust + rewire MDE-Retro
+  to depend on it (git dep); [ ] `mde connect`
   systemd user daemon + pairing modal/tray; [ ] capability surfaces (notifications
   bidirectional + a freedesktop notify daemon, clipboard, battery, file transfer via
   Explorer "Send to", MPRIS, run-commands, SMS); [ ] "Mobile Devices" Control Panel
