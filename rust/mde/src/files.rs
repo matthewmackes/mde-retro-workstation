@@ -87,10 +87,12 @@ struct Files {
     cloud_device: Option<String>,
     /// The Cloud device whose right-click offline menu is open, if any (E8.10).
     cloud_ctx: Option<String>,
-    /// Network pane SMB browse (E8.5a): the server typed into the browse box, the
-    /// Disk shares `smbclient -L` last returned for it, and whether a browse is in
-    /// flight (the button then reads "Browsing…").
+    /// Network pane SMB browse (E8.5a): the server typed into the browse box,
+    /// the host the listed shares were actually browsed against (so they don't
+    /// mislabel when the box is edited afterward), the Disk shares `smbclient -L`
+    /// last returned, and whether a browse is in flight (button reads "Browsing…").
     net_host: String,
+    net_browsed_host: String,
     net_shares: Vec<String>,
     net_busy: bool,
 }
@@ -232,6 +234,7 @@ fn launch(start: PathBuf, pane: Pane, pins: Vec<PathBuf>) -> iced::Result {
                 cloud_device: None,
                 cloud_ctx: None,
                 net_host: String::new(),
+                net_browsed_host: String::new(),
                 net_shares: Vec::new(),
                 net_busy: false,
             };
@@ -512,9 +515,14 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
         Message::NetHostChanged(s) => state.net_host = s,
         Message::NetBrowse => {
             let host = state.net_host.trim().to_string();
-            if !host.is_empty() {
+            // Ignore a second Browse while one is already in flight.
+            if !host.is_empty() && !state.net_busy {
                 state.net_busy = true;
                 state.net_shares.clear();
+                // Snapshot the host these shares belong to, so the rows/header/
+                // status reflect the BROWSED host even if the box is edited after
+                // (the live `net_host` would mislabel + mis-mount, §audit FIX).
+                state.net_browsed_host = host.clone();
                 state.error = Some(format!("Browsing \\\\{host}…"));
                 return browse_task(host);
             }
@@ -524,7 +532,7 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             match result {
                 Ok(shares) => {
                     state.error = if shares.is_empty() {
-                        Some(format!("No shares found on '{}'.", state.net_host.trim()))
+                        Some(format!("No shares found on '{}'.", state.net_browsed_host))
                     } else {
                         None
                     };
@@ -1165,7 +1173,7 @@ fn status_bar(state: &Files) -> Element<'_, Message> {
             let n = network_locations().len();
             let shares = state.net_shares.len();
             if shares > 0 {
-                format!("Network — {shares} share(s) on {}", state.net_host.trim())
+                format!("Network — {shares} share(s) on {}", state.net_browsed_host)
             } else if n == 0 {
                 "Network — browse a server, or type smb://host/share in the Address bar".to_string()
             } else {
@@ -1828,7 +1836,8 @@ fn network(state: &Files) -> Element<'_, Message> {
                 )
                 .push(
                     button(text(browse_label).size(metrics::UI_PX))
-                        .on_press(Message::NetBrowse)
+                        // Disabled while a browse is in flight (also reads "Browsing…").
+                        .on_press_maybe((!state.net_busy).then_some(Message::NetBrowse))
                         .padding(pad(2.0, 10.0, 2.0, 10.0))
                         .style(row_style(false)),
                 ),
@@ -1836,14 +1845,15 @@ fn network(state: &Files) -> Element<'_, Message> {
         .padding(pad(4.0, 6.0, 4.0, 6.0)),
     );
 
-    // The shares the last browse returned, if any.
+    // The shares the last browse returned, if any — labelled + linked against the
+    // host they were BROWSED against (net_browsed_host), never the live box value.
     if !state.net_shares.is_empty() {
         col = col.push(section_header(&format!(
             "Shares on {}",
-            state.net_host.trim()
+            state.net_browsed_host
         )));
         for share in &state.net_shares {
-            col = col.push(share_row(state.net_host.trim(), share));
+            col = col.push(share_row(&state.net_browsed_host, share));
         }
     }
 
@@ -1940,8 +1950,14 @@ fn smb_shares(host: &str) -> Result<Vec<String>, String> {
 ///         public          Disk      Public files
 ///         IPC$            IPC       IPC Service
 /// ```
-/// Take the first column of each row whose Type is `Disk`, dropping the `IPC$` /
-/// `print$` administrative shares. Stops at the blank line that ends the table.
+/// Keep each row whose Type is `Disk`, dropping the `IPC$` / `print$`
+/// administrative shares. Stops at the blank line that ends the table.
+///
+/// The Sharename column can contain spaces ("Shared Documents") and smbclient
+/// pads it with plain spaces (no quoting), so a naive "first token = name, second
+/// = type" split mangles multi-word names. Instead, locate the Type column — the
+/// first token that is a known share type (`Disk`/`IPC`/`Printer`) — and treat
+/// everything before it as the name.
 fn parse_smb_shares(output: &str) -> Vec<String> {
     let mut shares = Vec::new();
     let mut in_table = false;
@@ -1960,12 +1976,19 @@ fn parse_smb_shares(output: &str) -> Vec<String> {
         if t.starts_with("---") {
             continue;
         }
-        let mut cols = t.split_whitespace();
-        let (Some(name), Some(kind)) = (cols.next(), cols.next()) else {
-            continue;
+        let tokens: Vec<&str> = t.split_whitespace().collect();
+        let Some(type_idx) = tokens
+            .iter()
+            .position(|tok| matches!(*tok, "Disk" | "IPC" | "Printer"))
+        else {
+            continue; // no recognizable Type column on this line
         };
-        if kind == "Disk" && name != "IPC$" && name != "print$" {
-            shares.push(name.to_string());
+        if type_idx == 0 {
+            continue; // a Type with no name before it — not a share row
+        }
+        let name = tokens[..type_idx].join(" ");
+        if tokens[type_idx] == "Disk" && name != "IPC$" && name != "print$" {
+            shares.push(name);
         }
     }
     shares
@@ -2445,6 +2468,26 @@ Anonymous login successful
     fn parse_smb_shares_handles_no_table() {
         assert!(parse_smb_shares("session setup failed: NT_STATUS_ACCESS_DENIED").is_empty());
         assert!(parse_smb_shares("").is_empty());
+    }
+
+    #[test]
+    fn parse_smb_shares_keeps_multi_word_names() {
+        // Share names with spaces are common on Windows hosts; smbclient pads the
+        // Sharename column with plain spaces, so the parser must not split on them.
+        let out = "\
+\tSharename       Type      Comment
+\t---------       ----      -------
+\tShared Documents Disk     The team drive
+\tMy Music         Disk      \
+\tHP LaserJet      Printer   A printer, not a disk
+\tIPC$             IPC       IPC Service
+";
+        let shares = parse_smb_shares(out);
+        // Multi-word Disk names kept whole; the Printer + IPC$ rows excluded.
+        assert_eq!(
+            shares,
+            vec!["Shared Documents".to_string(), "My Music".to_string()]
+        );
     }
 
     #[test]
