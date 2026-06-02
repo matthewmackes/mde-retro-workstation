@@ -1,10 +1,11 @@
 //! `mde mount <uri>` — mount a remote filesystem and print its local path.
 //!
 //! Used by the File Explorer's Network (SMB) and Cloud (SFTP) panes (E8.5/E8.8):
-//! it mounts `smb://` / `sftp://` / … via GVfs (`gio mount`), falling back to
-//! `sshfs` for `sftp://` / `ssh://` when GVfs can't, and prints the resulting
-//! local path on stdout so the caller can navigate into it. On any error it
-//! prints a message to stderr and exits non-zero — it never panics.
+//! it mounts `smb://` / `dav://` / … via GVfs (`gio mount`) and `sftp://` /
+//! `ssh://` via `sshfs`, with bounded connects (so an unreachable peer fails in
+//! seconds, never hanging the caller), and prints the resulting local path on
+//! stdout so the caller can navigate into it. On any error it prints a message to
+//! stderr and exits non-zero — it never panics.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -68,20 +69,27 @@ fn find_in_gvfs(gvfs: &Path, host: &str) -> Option<PathBuf> {
 
 fn mount(uri: &str) -> Result<PathBuf, String> {
     let (scheme, host) = parse_uri(uri)?;
-    // GVfs handles smb/sftp/dav/google-drive/…; mounting an already-mounted share
-    // is a no-op success, and a share needing credentials we can't supply fails
-    // cleanly (surfaced below) rather than hanging on a prompt.
-    let gio = Command::new("gio").arg("mount").arg(uri).output();
+    // sftp/ssh go straight to sshfs (the cloud-device path) with a bounded connect,
+    // so an unreachable peer fails in seconds instead of hanging the caller.
+    if scheme == "sftp" || scheme == "ssh" {
+        return sshfs_mount(uri, &host);
+    }
+    // smb/dav/google-drive/…: GVfs. A `timeout` wrapper bounds the connect so an
+    // unreachable host fails promptly; an already-mounted share is a no-op success
+    // and a credentials prompt can't hang us.
+    let gio = Command::new("timeout")
+        .arg("12")
+        .arg("gio")
+        .arg("mount")
+        .arg(uri)
+        .output();
     if let Ok(g) = gvfs_dir() {
         if let Some(p) = find_in_gvfs(&g, &host) {
             return Ok(p);
         }
     }
-    // sshfs is the explicit fallback for sftp/ssh when GVfs didn't produce a path.
-    if scheme == "sftp" || scheme == "ssh" {
-        return sshfs_mount(uri, &host);
-    }
     let detail = match gio {
+        Ok(o) if o.status.code() == Some(124) => format!("connection to '{host}' timed out"),
         Ok(o) if !o.status.success() => String::from_utf8_lossy(&o.stderr).trim().to_string(),
         Ok(_) => "mounted, but its GVfs path was not found".to_string(),
         Err(e) => format!("gio not available: {e}"),
@@ -108,9 +116,29 @@ fn sshfs_mount(uri: &str, host: &str) -> Result<PathBuf, String> {
         None => (rest, "/".to_string()),
     };
     let remote = format!("{authority}:{path}");
-    match Command::new("sshfs").arg(&remote).arg(&mp).status() {
-        Ok(s) if s.success() => Ok(mp),
-        Ok(_) => Err(format!("sshfs failed for '{uri}'")),
+    // Bounded connect (ssh ConnectTimeout + a hard `timeout` wrapper) so an
+    // unreachable peer fails in seconds rather than hanging the caller. `.output()`
+    // captures stderr so the wrapper's own noise never leaks to the caller.
+    match Command::new("timeout")
+        .arg("15")
+        .arg("sshfs")
+        .arg("-o")
+        .arg("ConnectTimeout=8,reconnect=no")
+        .arg(&remote)
+        .arg(&mp)
+        .output()
+    {
+        Ok(o) if o.status.success() => Ok(mp),
+        Ok(o) if o.status.code() == Some(124) => Err(format!("connection to '{host}' timed out")),
+        Ok(o) if o.status.code() == Some(127) => Err("sshfs is not installed".to_string()),
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            Err(if err.is_empty() {
+                format!("sshfs failed for '{uri}'")
+            } else {
+                err
+            })
+        }
         Err(e) => Err(format!("sshfs not available: {e}")),
     }
 }

@@ -109,8 +109,11 @@ enum Message {
     ShowQuick,
     ShowThisPc,
     ShowNetwork,
-    /// Show the Cloud devices pane; `Some(id)` selects that paired device (E8.7).
-    ShowCloud(Option<String>),
+    /// Show the Cloud devices pane (the paired-device list).
+    ShowCloud,
+    /// Mount a paired device over sftp and browse it (E8.8); on failure it selects
+    /// the device and shows the error on the Cloud pane.
+    MountCloud(String),
     ToggleFolders,
     HeaderClick(usize),
     ToggleMenu(usize),
@@ -464,10 +467,26 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
         Message::ShowQuick => state.pane = Pane::QuickAccess,
         Message::ShowThisPc => state.pane = Pane::ThisPc,
         Message::ShowNetwork => state.pane = Pane::Network,
-        Message::ShowCloud(id) => {
-            state.cloud_device = id;
+        Message::ShowCloud => {
+            state.cloud_device = None;
             state.pane = Pane::CloudDevice;
         }
+        Message::MountCloud(id) => match cloud_devices().into_iter().find(|d| d.id == id) {
+            Some(d) if !d.address.is_empty() => match mount_uri(&format!("sftp://{}", d.address)) {
+                Ok(path) => state.navigate(path),
+                Err(e) => {
+                    state.cloud_device = Some(id);
+                    state.pane = Pane::CloudDevice;
+                    state.error = Some(e);
+                }
+            },
+            Some(d) => {
+                state.cloud_device = Some(id);
+                state.pane = Pane::CloudDevice;
+                state.error = Some(format!("No address configured for '{}'.", d.name));
+            }
+            None => {}
+        },
         Message::ToggleFolders => state.show_tree = !state.show_tree,
         Message::HeaderClick(col) => {
             if state.sort_col == col {
@@ -1651,6 +1670,9 @@ struct CloudDevice {
     name: String,
     #[serde(default)]
     paired: bool,
+    /// sftp target (host or user@host) used by E8.8 to mount + browse the device.
+    #[serde(default)]
+    address: String,
 }
 
 /// The connect pairing store: `~/.config/mde/connect/devices.json` (honouring
@@ -1674,8 +1696,9 @@ fn cloud_devices() -> Vec<CloudDevice> {
     list.into_iter().filter(|d| d.paired).collect()
 }
 
-/// One Cloud-device row: a phone glyph, the device name, and its pairing status.
-/// Selecting it highlights the device (the sftp mount + browse lands in E8.8).
+/// One Cloud-device row: a phone glyph, the device name, and its sftp address.
+/// Clicking it mounts the device over sftp and browses it (E8.8); a connect error
+/// re-selects the row (highlighted) and shows the reason in the status bar.
 fn cloud_row(d: &CloudDevice, selected: bool) -> Element<'static, Message> {
     button(
         Row::new()
@@ -1691,22 +1714,26 @@ fn cloud_row(d: &CloudDevice, selected: bool) -> Element<'static, Message> {
                     .width(Length::FillPortion(5)),
             )
             .push(
-                text("Paired")
-                    .size(metrics::UI_PX)
-                    .width(Length::FillPortion(6))
-                    .color(palette::color(palette::GRAY_TEXT)),
+                text(if d.address.is_empty() {
+                    "Paired (no address)".to_string()
+                } else {
+                    d.address.clone()
+                })
+                .size(metrics::UI_PX)
+                .width(Length::FillPortion(6))
+                .color(palette::color(palette::GRAY_TEXT)),
             ),
     )
-    .on_press(Message::ShowCloud(Some(d.id.clone())))
+    .on_press(Message::MountCloud(d.id.clone()))
     .width(Length::Fill)
     .padding(pad(2.0, 6.0, 2.0, 6.0))
     .style(row_style(selected))
     .into()
 }
 
-/// The Cloud devices pane: the paired KDE Connect devices (E8.7), the selected one
-/// highlighted. Empty → an empty-state line (the status bar echoes the count). The
-/// sftp mount + browse on select lands in E8.8.
+/// The Cloud devices pane: the paired KDE Connect devices (E8.7); clicking one
+/// mounts it over sftp and browses it (E8.8), a failed device staying highlighted
+/// with its error. Empty → an empty-state line (the status bar echoes the count).
 fn cloud_pane(state: &Files) -> Element<'_, Message> {
     let devices = cloud_devices();
     let mut col = Column::new().spacing(0.0);
@@ -1748,7 +1775,7 @@ fn cloud_nav_child(name: String, id: String, active: bool) -> Element<'static, M
             ))
             .push(text(name).size(metrics::UI_PX)),
     )
-    .on_press(Message::ShowCloud(Some(id)))
+    .on_press(Message::MountCloud(id))
     .width(Length::Fill)
     .padding(pad(1.0, 6.0, 1.0, 6.0))
     .style(row_style(active))
@@ -1834,7 +1861,7 @@ fn nav_pane(state: &Files) -> Element<'_, Message> {
         "Cloud Files",
         &["folder-cloud", "phone", "folder-remote"],
         state.pane == Pane::CloudDevice && state.cloud_device.is_none(),
-        Message::ShowCloud(None),
+        Message::ShowCloud,
     ));
     for d in cloud_devices() {
         let sel = state.pane == Pane::CloudDevice && state.cloud_device.as_deref() == Some(&d.id);
