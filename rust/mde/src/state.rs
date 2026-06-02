@@ -174,6 +174,19 @@ pub struct MenuState {
     /// Saved Win10 theme bundles (Personalization ▸ Themes, E7.7).
     #[serde(default)]
     pub themes: Vec<SavedTheme>,
+    /// Win10 Start ▸ "Show more tiles" — widens the tile grid (E7.8).
+    #[serde(default)]
+    pub start_more_tiles: bool,
+    /// Win10 Start ▸ "Show recently added apps" (E7.8). Default on.
+    #[serde(default = "def_true")]
+    pub start_show_recent: bool,
+    /// Win10 Start ▸ "Show most used apps" (the Suggested band, E7.8). Default on.
+    #[serde(default = "def_true")]
+    pub start_show_suggested: bool,
+}
+
+fn def_true() -> bool {
+    true
 }
 
 impl Default for MenuState {
@@ -191,6 +204,9 @@ impl Default for MenuState {
             virtual_desktops: def_virtual_desktops(),
             win10_accent: 0,
             themes: Vec::new(),
+            start_more_tiles: false,
+            start_show_recent: true,
+            start_show_suggested: true,
         }
     }
 }
@@ -293,6 +309,9 @@ mod tests {
                 accent: 3,
                 dark: true,
             }],
+            start_more_tiles: true,
+            start_show_recent: false,
+            start_show_suggested: true,
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);

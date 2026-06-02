@@ -45,6 +45,16 @@ const COL_W: f32 = 260.0; // the All-Apps center column
 const TILES_W: f32 = 4.0 * TILE_CELL + 3.0 * GAP; // Field Guide default: 4 medium-tiles wide
 const PANEL_H: f32 = 560.0;
 
+/// The tile-grid width: the 4-wide default, or 6-wide when Start ▸ "Show more
+/// tiles" is on (E7.8).
+fn tiles_w(more: bool) -> f32 {
+    if more {
+        6.0 * TILE_CELL + 5.0 * GAP
+    } else {
+        TILES_W
+    }
+}
+
 pub fn run(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
         Some("--list-tiles") => list_tiles(),
@@ -181,6 +191,10 @@ struct Start {
     tiles: Vec<StartTile>,
     /// The right-clicked target showing a context menu, if any.
     context: Option<Ctx>,
+    /// Start ▸ settings (E7.8): wider tile grid + section visibility.
+    more_tiles: bool,
+    show_recent: bool,
+    show_suggested: bool,
 }
 
 #[to_layer_message]
@@ -227,7 +241,7 @@ fn all_apps() -> Vec<AppEntry> {
             path: a.path,
         })
         .collect();
-    v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    v.sort_by_key(|a| a.name.to_lowercase());
     v.dedup_by(|a, b| a.name.eq_ignore_ascii_case(&b.name));
     v
 }
@@ -235,7 +249,7 @@ fn all_apps() -> Vec<AppEntry> {
 /// The N newest-installed apps (by `.desktop` mtime), for "Recently added".
 fn recent_apps(apps: &[AppEntry], n: usize) -> Vec<AppEntry> {
     let mut by_mtime: Vec<AppEntry> = apps.iter().filter(|a| a.mtime > 0).cloned().collect();
-    by_mtime.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    by_mtime.sort_by_key(|a| std::cmp::Reverse(a.mtime));
     by_mtime.truncate(n);
     by_mtime
 }
@@ -243,7 +257,7 @@ fn recent_apps(apps: &[AppEntry], n: usize) -> Vec<AppEntry> {
 /// The most-launched pins (launch_count > 0, descending), for "Suggested".
 fn suggested_pins(state: &MenuState, n: usize) -> Vec<(String, String)> {
     let mut pins: Vec<_> = state.pinned.iter().filter(|p| p.launch_count > 0).collect();
-    pins.sort_by(|a, b| b.launch_count.cmp(&a.launch_count));
+    pins.sort_by_key(|p| std::cmp::Reverse(p.launch_count));
     pins.into_iter()
         .take(n)
         .map(|p| (p.name.clone(), p.command.clone()))
@@ -280,6 +294,9 @@ fn launch() -> Result<(), iced_layershell::Error> {
                     tiles: state::seed_start_tiles(&st),
                     apps,
                     context: None,
+                    more_tiles: st.start_more_tiles,
+                    show_recent: st.start_show_recent,
+                    show_suggested: st.start_show_suggested,
                 },
                 Task::none(),
             )
@@ -389,13 +406,14 @@ fn update(start: &mut Start, message: Message) -> Task<Message> {
                 exit(0);
             }
         }
+        // Esc closes an open context menu first; a second Esc (no menu) exits.
+        // The `take()` runs in the guard either way — closing the menu — and the
+        // arm only fires (exit) when there was none.
         Message::Event(Event::Keyboard(keyboard::Event::KeyPressed {
             key: keyboard::Key::Named(keyboard::key::Named::Escape),
             ..
-        })) => {
-            if start.context.take().is_none() {
-                exit(0);
-            }
+        })) if start.context.take().is_none() => {
+            exit(0);
         }
         _ => {}
     }
@@ -419,7 +437,10 @@ fn view(start: &Start) -> Element<'_, Message> {
         .spacing(GAP)
         .push(rail())
         .push(container(center_column(start)).width(Length::Fixed(COL_W)))
-        .push(container(tiles_view(&start.tiles)).width(Length::Fixed(TILES_W + 16.0)));
+        .push(
+            container(tiles_view(&start.tiles, start.more_tiles))
+                .width(Length::Fixed(tiles_w(start.more_tiles) + 16.0)),
+        );
 
     let panel = container(container(regions).padding(8.0))
         .height(Length::Fixed(PANEL_H))
@@ -618,13 +639,13 @@ fn app_row(
 /// empty) then the #/A–Z All-Apps list — all in one scrollable.
 fn center_column(start: &Start) -> Element<'static, Message> {
     let mut col = Column::new().spacing(1.0).width(Length::Fill);
-    if !start.recent.is_empty() {
+    if start.show_recent && !start.recent.is_empty() {
         col = col.push(accent_header("Recently added".into()));
         for a in &start.recent {
             col = col.push(app_row(a.name.clone(), a.exec.clone(), a.terminal, None));
         }
     }
-    if !start.suggested.is_empty() {
+    if start.show_suggested && !start.suggested.is_empty() {
         col = col.push(accent_header("Suggested".into()));
         for (name, cmd) in &start.suggested {
             col = col.push(app_row(name.clone(), cmd.clone(), false, None));
@@ -664,7 +685,7 @@ fn center_column(start: &Start) -> Element<'static, Message> {
 }
 
 /// The right tile grid: `start_tiles` in named groups, sized by `TileSize::span`.
-fn tiles_view(tiles: &[StartTile]) -> Element<'_, Message> {
+fn tiles_view(tiles: &[StartTile], more: bool) -> Element<'_, Message> {
     // Group preserving first-seen order.
     let mut groups: Vec<(String, Vec<&StartTile>)> = Vec::new();
     for t in tiles {
@@ -695,7 +716,7 @@ fn tiles_view(tiles: &[StartTile]) -> Element<'_, Message> {
             let (cols, rows) = t.size.span();
             let w = cols as f32 * TILE_CELL + (cols as f32 - 1.0) * GAP;
             let h = rows as f32 * TILE_CELL + (rows as f32 - 1.0) * GAP;
-            if used + w > TILES_W && used > 0.0 {
+            if used + w > tiles_w(more) && used > 0.0 {
                 grid = grid.push(roww);
                 roww = Row::new().spacing(GAP);
                 used = 0.0;

@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use std::process::{Command, ExitCode};
 
 use iced::widget::{
-    button, column, container, image, mouse_area, pick_list, scrollable, text, text_input, Column,
-    Row, Space,
+    button, checkbox, column, container, image, mouse_area, pick_list, scrollable, text,
+    text_input, Column, Row, Space,
 };
 use iced::{Background, Border, Color, Element, Length, Padding, Task};
 
@@ -62,6 +62,8 @@ enum Kind {
     Background,
     /// The native Personalization ▸ Themes page (E7.7).
     Themes,
+    /// The native Personalization ▸ Start page (E7.8).
+    Start,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -190,7 +192,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "Start",
-                kind: Kind::Deferred,
+                kind: Kind::Start,
             },
             Page {
                 title: "Taskbar",
@@ -323,6 +325,10 @@ struct Settings {
     bg_mode: BgMode,
     /// Saved theme bundles (E7.7).
     themes: Vec<crate::state::SavedTheme>,
+    /// Start page toggles (E7.8), consumed by `start_win10`.
+    start_more_tiles: bool,
+    start_show_recent: bool,
+    start_show_suggested: bool,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -348,6 +354,10 @@ enum Message {
     // Themes page (E7.7).
     SaveTheme,
     ApplyTheme(usize),
+    // Start page (E7.8).
+    SetStartMore(bool),
+    SetStartRecent(bool),
+    SetStartSuggested(bool),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -419,6 +429,7 @@ fn list() -> ExitCode {
                 Kind::Colors => "(native: Colors)".to_string(),
                 Kind::Background => "(native: Background)".to_string(),
                 Kind::Themes => "(native: Themes)".to_string(),
+                Kind::Start => "(native: Start)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
                 Kind::Cmd(c, _) => format!("cmd: {c}"),
@@ -451,6 +462,9 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 bg_selected: None,
                 bg_mode: BgMode::Fill,
                 themes: st.themes.clone(),
+                start_more_tiles: st.start_more_tiles,
+                start_show_recent: st.start_show_recent,
+                start_show_suggested: st.start_show_suggested,
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -511,6 +525,18 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         Message::BgApply => apply_background(state),
         Message::SaveTheme => save_theme(state),
         Message::ApplyTheme(i) => apply_theme(state, i),
+        Message::SetStartMore(v) => {
+            state.start_more_tiles = v;
+            persist(state);
+        }
+        Message::SetStartRecent(v) => {
+            state.start_show_recent = v;
+            persist(state);
+        }
+        Message::SetStartSuggested(v) => {
+            state.start_show_suggested = v;
+            persist(state);
+        }
     }
     Task::none()
 }
@@ -593,7 +619,7 @@ fn open_current(state: &mut Settings) {
         return;
     };
     match page.kind {
-        Kind::Deferred | Kind::Colors | Kind::Background | Kind::Themes => {}
+        Kind::Deferred | Kind::Colors | Kind::Background | Kind::Themes | Kind::Start => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
             let _ = Command::new(mde).arg(sub).spawn();
@@ -635,6 +661,9 @@ fn persist(state: &Settings) {
     let mut st = crate::state::load();
     st.theme_mode = if state.dark { "dark" } else { "light" }.to_string();
     st.win10_accent = state.win10_accent;
+    st.start_more_tiles = state.start_more_tiles;
+    st.start_show_recent = state.start_show_recent;
+    st.start_show_suggested = state.start_show_suggested;
     let _ = crate::state::save(&st);
 }
 
@@ -865,6 +894,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Colors => colors_page(state),
         Kind::Background => background_page(state),
         Kind::Themes => themes_page(state),
+        Kind::Start => start_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT))
@@ -1134,6 +1164,41 @@ fn theme_tile(i: usize, t: &crate::state::SavedTheme) -> Element<'static, Messag
                 .color(palette::color(palette::WINDOW_TEXT)),
         );
     mouse_area(card).on_press(Message::ApplyTheme(i)).into()
+}
+
+/// Personalization ▸ Start (E7.8): the toggles the Win10 tiled Start consumes.
+fn start_page(state: &Settings) -> Element<'_, Message> {
+    let row = |label: &'static str, checked: bool, msg: fn(bool) -> Message| {
+        checkbox(label, checked)
+            .on_toggle(msg)
+            .size(metrics::UI_PX)
+            .text_size(metrics::UI_PX)
+            .spacing(8.0)
+            .style(mde_ui::checkbox_style)
+    };
+    Column::new()
+        .spacing(10.0)
+        .push(row(
+            "Show more tiles",
+            state.start_more_tiles,
+            Message::SetStartMore,
+        ))
+        .push(row(
+            "Show recently added apps",
+            state.start_show_recent,
+            Message::SetStartRecent,
+        ))
+        .push(row(
+            "Show most used apps",
+            state.start_show_suggested,
+            Message::SetStartSuggested,
+        ))
+        .push(
+            text("\"Use Start full screen\" and \"Choose which folders appear\" are part of a later milestone.")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        )
+        .into()
 }
 
 fn mode_button<'a>(label: &'a str, selected: bool, msg: Message) -> Element<'a, Message> {
