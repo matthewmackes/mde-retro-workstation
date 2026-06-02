@@ -102,6 +102,11 @@ impl Workspaces {
 /// display or the compositor doesn't advertise `ext_workspace_manager_v1` (the
 /// overlay then falls back to the `state.rs` fixed-desktop strip).
 pub fn start() -> Option<Workspaces> {
+    // Test/diagnostic escape hatch: force the fallback ladder (E4.5) without a
+    // compositor. Lets a unit test exercise the no-ext-workspace path.
+    if std::env::var_os("MDE_NO_EXT_WORKSPACE").is_some() {
+        return None;
+    }
     let conn = Connection::connect_to_env().ok()?;
     let list = Arc::new(Mutex::new(Vec::new()));
     let handles = Arc::new(Mutex::new(HashMap::new()));
@@ -391,5 +396,19 @@ pub fn debug_list() {
             }
         }
         None => eprintln!("no wayland display / no ext-workspace-v1 support"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_guard_forces_fallback() {
+        // E4.5: the guard makes start() return None before touching Wayland, so
+        // the fallback ladder is exercisable headless.
+        std::env::set_var("MDE_NO_EXT_WORKSPACE", "1");
+        assert!(start().is_none());
+        std::env::remove_var("MDE_NO_EXT_WORKSPACE");
     }
 }

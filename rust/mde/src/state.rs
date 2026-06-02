@@ -86,6 +86,10 @@ fn def_icon_color() -> String {
 }
 /// The Win10 Action Center quick-action tiles, in order. The first four show
 /// collapsed; the rest appear on Expand (E3.5).
+/// Default virtual-desktop count for the Task View fallback strip (E4.5).
+fn def_virtual_desktops() -> u32 {
+    4
+}
 fn def_quick_actions() -> Vec<String> {
     [
         "wifi",
@@ -141,6 +145,12 @@ pub struct MenuState {
     /// but suppresses toasts (E3.7).
     #[serde(default)]
     pub focus_assist: bool,
+    /// Number of virtual desktops to show in Task View's **fallback** strip when
+    /// the compositor doesn't advertise ext-workspace-v1 (E4.5). When the live
+    /// protocol is present (labwc), the band reflects the real workspaces and
+    /// this is ignored. Default 4; a value ≤ 1 means a single desktop (no band).
+    #[serde(default = "def_virtual_desktops")]
+    pub virtual_desktops: u32,
 }
 
 impl Default for MenuState {
@@ -155,6 +165,7 @@ impl Default for MenuState {
             start_tiles: Vec::new(),
             quick_actions: def_quick_actions(),
             focus_assist: false,
+            virtual_desktops: def_virtual_desktops(),
         }
     }
 }
@@ -249,6 +260,7 @@ mod tests {
             }],
             quick_actions: vec!["wifi".into(), "mute".into()],
             focus_assist: true,
+            virtual_desktops: 6,
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);

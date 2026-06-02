@@ -34,6 +34,9 @@ struct TaskView {
     windows: Vec<wlr::Window>,
     ws: Option<workspace::Workspaces>,
     workspaces: Vec<workspace::Workspace>,
+    /// Fallback desktop count (E4.5): >0 only when ext-workspace is absent and
+    /// `state.virtual_desktops` > 1, so the band shows a fixed strip instead.
+    fixed_desktops: u32,
 }
 
 #[to_layer_message]
@@ -101,12 +104,20 @@ fn launch() -> Result<(), iced_layershell::Error> {
             let windows = wm.as_ref().map(|w| w.windows()).unwrap_or_default();
             let ws = workspace::start();
             let workspaces = ws.as_ref().map(|w| w.list()).unwrap_or_default();
+            // Fallback ladder: with no ext-workspace, fall back to the configured
+            // fixed desktop count; a single desktop means no band at all.
+            let fixed_desktops = if ws.is_none() {
+                crate::state::load().virtual_desktops
+            } else {
+                0
+            };
             (
                 TaskView {
                     wm,
                     windows,
                     ws,
                     workspaces,
+                    fixed_desktops,
                 },
                 Task::none(),
             )
@@ -183,7 +194,7 @@ fn view(state: &TaskView) -> Element<'_, Message> {
     let body = Column::new()
         .width(Length::Fill)
         .height(Length::Fill)
-        .push(desktop_band(&state.workspaces))
+        .push(band(state))
         .push(
             container(content)
                 .width(Length::Fill)
@@ -199,10 +210,64 @@ fn view(state: &TaskView) -> Element<'_, Message> {
     .into()
 }
 
+/// Pick the desktop band per the fallback ladder (E4.4/E4.5):
+///   1. live ext-workspace present → the interactive `desktop_band`;
+///   2. absent but `virtual_desktops` > 1 → the read-only `fixed_desktop_band`;
+///   3. neither → no band (single-desktop grid).
+fn band(state: &TaskView) -> Element<'_, Message> {
+    if !state.workspaces.is_empty() {
+        desktop_band(&state.workspaces)
+    } else if state.fixed_desktops > 1 {
+        fixed_desktop_band(state.fixed_desktops)
+    } else {
+        Space::new(Length::Fill, Length::Shrink).into()
+    }
+}
+
+/// The fallback strip (E4.5): the compositor doesn't advertise ext-workspace, so
+/// mde can't read which desktop is active or switch via the protocol. Show the
+/// configured desktop count as read-only chips with the keyboard hint — the real
+/// switching is the labwc `W-C-Left/Right` binds (E4.6). No fake active state and
+/// no dead click: the chips are plain labels, not buttons.
+fn fixed_desktop_band<'a>(n: u32) -> Element<'a, Message> {
+    let mut row = Row::new().spacing(10.0).align_y(Vertical::Center);
+    for i in 1..=n {
+        let label = text(format!("Desktop {i}"))
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::TITLE_TEXT));
+        row = row.push(
+            container(label)
+                .padding(Padding::from([6.0, 12.0]))
+                .style(|_| container::Style {
+                    background: Some(Background::Color(palette::color(palette::MENU))),
+                    border: Border {
+                        color: palette::color(palette::WINDOW_FRAME),
+                        width: 1.0,
+                        radius: 2.0.into(),
+                    },
+                    ..container::Style::default()
+                }),
+        );
+    }
+    // Plain ASCII: the bundled UI font lacks the arrow glyphs, and §2.7 says
+    // never render tofu.
+    let hint = text("Ctrl+Win+Left / Right to switch")
+        .size(metrics::UI_PX)
+        .color(palette::color(palette::GRAY_TEXT));
+    let col = Column::new()
+        .spacing(6.0)
+        .align_x(Horizontal::Center)
+        .push(row)
+        .push(hint);
+    container(col)
+        .width(Length::Fill)
+        .align_x(Horizontal::Center)
+        .padding(16.0)
+        .into()
+}
+
 /// The virtual-desktop band: a centered row of workspace chips (the active one
 /// accent-filled, each with a remove ×) plus a trailing "+ New desktop" chip.
-/// Empty when no ext-workspace compositor is present — the fixed-strip fallback
-/// is E4.5.
 fn desktop_band(workspaces: &[workspace::Workspace]) -> Element<'_, Message> {
     if workspaces.is_empty() {
         return Space::new(Length::Fill, Length::Shrink).into();
@@ -337,5 +402,52 @@ fn truncate(s: &str, max: usize) -> String {
         let mut t: String = s.chars().take(max.saturating_sub(1)).collect();
         t.push('\u{2026}');
         t
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn overlay(fixed: u32, windows: Vec<wlr::Window>) -> TaskView {
+        TaskView {
+            wm: None,
+            windows,
+            ws: None,
+            workspaces: Vec::new(),
+            fixed_desktops: fixed,
+        }
+    }
+
+    #[test]
+    fn overlay_builds_with_fixed_fallback() {
+        // E4.5 acceptance: with no ext-workspace and a configured count, the
+        // overlay still builds a valid Element (the fixed strip path).
+        let st = overlay(4, Vec::new());
+        let _el: Element<Message> = view(&st);
+    }
+
+    #[test]
+    fn overlay_builds_single_desktop() {
+        // One desktop → no band, still a valid Element (the terminal rung).
+        let st = overlay(1, Vec::new());
+        let _el: Element<Message> = view(&st);
+    }
+
+    #[test]
+    fn overlay_builds_with_a_window() {
+        // A window present exercises the tile grid path too.
+        let st = overlay(
+            0,
+            vec![wlr::Window {
+                id: 1,
+                title: "foot".into(),
+                app_id: "foot".into(),
+                focused: true,
+                minimized: false,
+                maximized: false,
+            }],
+        );
+        let _el: Element<Message> = view(&st);
     }
 }
