@@ -60,6 +60,8 @@ enum Kind {
     Colors,
     /// The native Personalization ▸ Background page (E7.4).
     Background,
+    /// The native Personalization ▸ Themes page (E7.7).
+    Themes,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -184,7 +186,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "Themes",
-                kind: Kind::Deferred,
+                kind: Kind::Themes,
             },
             Page {
                 title: "Start",
@@ -319,6 +321,8 @@ struct Settings {
     bg_wallpapers: Vec<String>,
     bg_selected: Option<usize>,
     bg_mode: BgMode,
+    /// Saved theme bundles (E7.7).
+    themes: Vec<crate::state::SavedTheme>,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -341,6 +345,9 @@ enum Message {
     BgBrowse,
     BgBrowsed(Option<String>),
     BgApply,
+    // Themes page (E7.7).
+    SaveTheme,
+    ApplyTheme(usize),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -411,6 +418,7 @@ fn list() -> ExitCode {
                 Kind::Deferred => continue,
                 Kind::Colors => "(native: Colors)".to_string(),
                 Kind::Background => "(native: Background)".to_string(),
+                Kind::Themes => "(native: Themes)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
                 Kind::Cmd(c, _) => format!("cmd: {c}"),
@@ -442,6 +450,7 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 bg_wallpapers: wallpaper::scan(),
                 bg_selected: None,
                 bg_mode: BgMode::Fill,
+                themes: st.themes.clone(),
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -500,8 +509,44 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         }
         Message::BgBrowsed(None) => {}
         Message::BgApply => apply_background(state),
+        Message::SaveTheme => save_theme(state),
+        Message::ApplyTheme(i) => apply_theme(state, i),
     }
     Task::none()
+}
+
+/// Capture the current background + accent + mode as a new saved theme bundle.
+fn save_theme(state: &mut Settings) {
+    let wallpaper = state
+        .bg_selected
+        .and_then(|i| state.bg_wallpapers.get(i))
+        .cloned()
+        .unwrap_or_default();
+    let theme = crate::state::SavedTheme {
+        name: format!("Custom {}", state.themes.len() + 1),
+        wallpaper,
+        accent: state.win10_accent,
+        dark: state.dark,
+    };
+    state.themes.push(theme);
+    let mut st = crate::state::load();
+    st.themes = state.themes.clone();
+    let _ = crate::state::save(&st);
+}
+
+/// Apply a saved theme bundle: wallpaper (swaybg) + accent + mode, all at once.
+fn apply_theme(state: &mut Settings, i: usize) {
+    let Some(t) = state.themes.get(i).cloned() else {
+        return;
+    };
+    if !t.wallpaper.is_empty() {
+        let _ = outputs::set_wallpaper(&t.wallpaper, state.bg_mode.swaybg());
+    }
+    state.win10_accent = t.accent;
+    palette::set_win10_accent(t.accent);
+    state.dark = t.dark;
+    palette::set_dark(t.dark);
+    persist(state);
 }
 
 /// Apply (and persist) the Background page's current selection via swaybg.
@@ -548,7 +593,7 @@ fn open_current(state: &mut Settings) {
         return;
     };
     match page.kind {
-        Kind::Deferred | Kind::Colors | Kind::Background => {}
+        Kind::Deferred | Kind::Colors | Kind::Background | Kind::Themes => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
             let _ = Command::new(mde).arg(sub).spawn();
@@ -819,6 +864,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
     let inner: Element<Message> = match page.kind {
         Kind::Colors => colors_page(state),
         Kind::Background => background_page(state),
+        Kind::Themes => themes_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT))
@@ -1020,6 +1066,74 @@ fn thumb(path: &str, i: usize, selected: bool) -> Element<'static, Message> {
     }))
     .on_press(Message::BgSelect(i))
     .into()
+}
+
+/// Personalization ▸ Themes (E7.7): a gallery of saved {background, accent,
+/// mode} bundles + a "Save theme" button. Selecting a tile re-applies the whole
+/// bundle (swaybg + accent + mode) in one action.
+fn themes_page(state: &Settings) -> Element<'_, Message> {
+    let gallery: Element<Message> = if state.themes.is_empty() {
+        text("No saved themes yet. Save your current background, accent and mode as a theme.")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::GRAY_TEXT))
+            .into()
+    } else {
+        let mut row = Row::new().spacing(12.0);
+        for (i, t) in state.themes.iter().enumerate() {
+            row = row.push(theme_tile(i, t));
+        }
+        scrollable(row).style(mde_ui::scrollbar).into()
+    };
+    let save = button(text("Save theme").size(metrics::UI_PX))
+        .on_press(Message::SaveTheme)
+        .padding(Padding::from([6.0, 18.0]))
+        .style(tile_style);
+    Column::new().spacing(16.0).push(gallery).push(save).into()
+}
+
+/// One theme tile: the saved wallpaper thumbnail (or the accent swatch when the
+/// bundle keeps the current background) over its name. Click re-applies it.
+fn theme_tile(i: usize, t: &crate::state::SavedTheme) -> Element<'static, Message> {
+    let preview: Element<Message> = if t.wallpaper.is_empty() {
+        let c = palette::win10_accent_swatch(t.accent);
+        container(Space::new(Length::Fixed(120.0), Length::Fixed(70.0)))
+            .style(move |_| container::Style {
+                background: Some(Background::Color(c)),
+                border: Border {
+                    color: palette::color(palette::WINDOW_FRAME),
+                    width: 1.0,
+                    radius: 0.0.into(),
+                },
+                ..container::Style::default()
+            })
+            .into()
+    } else {
+        container(
+            image(image::Handle::from_path(&t.wallpaper))
+                .width(Length::Fixed(120.0))
+                .height(Length::Fixed(70.0))
+                .content_fit(iced::ContentFit::Cover),
+        )
+        .style(|_| container::Style {
+            border: Border {
+                color: palette::color(palette::WINDOW_FRAME),
+                width: 1.0,
+                radius: 0.0.into(),
+            },
+            ..container::Style::default()
+        })
+        .into()
+    };
+    let card = Column::new()
+        .spacing(4.0)
+        .align_x(iced::alignment::Horizontal::Center)
+        .push(preview)
+        .push(
+            text(t.name.clone())
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        );
+    mouse_area(card).on_press(Message::ApplyTheme(i)).into()
 }
 
 fn mode_button<'a>(label: &'a str, selected: bool, msg: Message) -> Element<'a, Message> {

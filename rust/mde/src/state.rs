@@ -75,6 +75,21 @@ pub struct StartTile {
     pub group: String,
 }
 
+/// A saved Windows 10 theme bundle (Settings ▸ Personalization ▸ Themes, E7.7):
+/// a wallpaper + UI accent + light/dark, applied together on select.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SavedTheme {
+    pub name: String,
+    /// Wallpaper path; empty ⇒ keep the current background.
+    #[serde(default)]
+    pub wallpaper: String,
+    /// `palette::WIN10_ACCENTS` index.
+    #[serde(default)]
+    pub accent: u8,
+    #[serde(default)]
+    pub dark: bool,
+}
+
 fn def_theme() -> String {
     "carbon".into()
 }
@@ -156,6 +171,9 @@ pub struct MenuState {
     /// from `icon_color`, which only tints icons). 0 = the stock blue.
     #[serde(default)]
     pub win10_accent: u8,
+    /// Saved Win10 theme bundles (Personalization ▸ Themes, E7.7).
+    #[serde(default)]
+    pub themes: Vec<SavedTheme>,
 }
 
 impl Default for MenuState {
@@ -172,6 +190,7 @@ impl Default for MenuState {
             focus_assist: false,
             virtual_desktops: def_virtual_desktops(),
             win10_accent: 0,
+            themes: Vec::new(),
         }
     }
 }
@@ -268,6 +287,12 @@ mod tests {
             focus_assist: true,
             virtual_desktops: 6,
             win10_accent: 4,
+            themes: vec![SavedTheme {
+                name: "Sunset".into(),
+                wallpaper: "/usr/share/backgrounds/sunset.jpg".into(),
+                accent: 3,
+                dark: true,
+            }],
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);
