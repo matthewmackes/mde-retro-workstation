@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# MDE-Retro pre-commit hook — keep the Rust workspace rustfmt-clean so the
+# formatting drift that built up before (see the "refactor: cargo fmt" commit)
+# can't reaccumulate. Blocks a commit that would introduce drift; it never
+# rewrites your staged files behind your back.
+#
+# Enabled per-clone with:  git config core.hooksPath .githooks   (see CLAUDE.md §4)
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+# Only run when the commit actually touches Rust sources under rust/.
+if git diff --cached --name-only --diff-filter=ACM | grep -qE '^rust/.*\.rs$'; then
+    if ! ( cd "$repo_root/rust" && cargo fmt --all --check >/dev/null 2>&1 ); then
+        echo "✗ pre-commit: rustfmt drift in the Rust workspace." >&2
+        echo "  Fix:  (cd rust && cargo fmt --all)  then re-stage and commit." >&2
+        exit 1
+    fi
+fi

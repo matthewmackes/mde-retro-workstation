@@ -123,6 +123,10 @@ cargo test -p mde-ui   # static layer-1 only (palette + metrics, always headless
 cargo clippy --all-targets   # lint (treat warnings as work)
 cargo fmt --all              # format
 
+git config core.hooksPath .githooks   # ONE-TIME per clone: enable the rustfmt
+                                       # pre-commit hook (.githooks/pre-commit),
+                                       # which blocks a commit with fmt drift.
+
 ./preview.sh gallery   # screenshot gallery in an ISOLATED nested sway → tests/accuracy/captures/gallery/
 ./preview.sh verify    # run the accuracy harness the same isolated way
 ./preview.sh <comp>    # launch ONE component live: panel menu files control-panel system-properties run setup …
