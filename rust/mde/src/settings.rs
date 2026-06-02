@@ -421,6 +421,9 @@ struct Settings {
     update_status: Option<Result<Vec<crate::packages::Update>, String>>,
     /// Update page (E13.3): a `pkexec dnf upgrade` install is in flight.
     update_installing: bool,
+    /// Update page (E13.4): paused-until Unix seconds (0 = not paused), mirrors
+    /// `state.update_paused_until`.
+    update_paused_until: u64,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -467,6 +470,8 @@ enum Message {
     UpdatesChecked(Result<Vec<crate::packages::Update>, String>),
     InstallUpdates,
     UpdatesInstalled(bool),
+    PauseUpdates,
+    ResumeUpdates,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -592,6 +597,7 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 update_checking: false,
                 update_status: None,
                 update_installing: false,
+                update_paused_until: st.update_paused_until,
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -735,8 +741,40 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
                 return check_updates_task();
             }
         }
+        Message::PauseUpdates => {
+            // Step 7 days (cap 35) and mask the timer (E13.4). Optimistic + persist,
+            // like the other privileged spawns in this module.
+            state.update_paused_until = next_pause(state.update_paused_until, now_secs());
+            let _ = Command::new("pkexec")
+                .args(["systemctl", "mask", "--now", "dnf-automatic.timer"])
+                .spawn();
+            persist(state);
+        }
+        Message::ResumeUpdates => {
+            state.update_paused_until = 0;
+            let _ = Command::new("pkexec")
+                .args(["systemctl", "unmask", "dnf-automatic.timer"])
+                .spawn();
+            persist(state);
+        }
     }
     Task::none()
+}
+
+/// Now in Unix seconds (0 if the clock is before the epoch, which never happens).
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Next "paused until" time (E13.4): step 7 days from the later of `now` / the
+/// current pause end, capped at 35 days from `now`. Pure, so the stepping + cap
+/// are unit-tested without touching the clock.
+fn next_pause(current_until: u64, now: u64) -> u64 {
+    const DAY: u64 = 86_400;
+    (current_until.max(now) + 7 * DAY).min(now + 35 * DAY)
 }
 
 /// Auto-run a `dnf check-update` when the Update page becomes visible and hasn't
@@ -973,6 +1011,7 @@ fn persist(state: &Settings) {
     st.taskbar_location = state.taskbar_loc.key().to_string();
     st.win10_search_mode = state.search_mode.key().to_string();
     st.win10_show_taskview = state.show_taskview;
+    st.update_paused_until = state.update_paused_until;
     let _ = crate::state::save(&st);
 }
 
@@ -1332,6 +1371,41 @@ fn update_page(state: &Settings) -> Element<'_, Message> {
         );
     }
     let mut col = Column::new().spacing(16.0).push(card).push(buttons);
+    // Pause / Resume updates (E13.4): a flat accent link. While paused the
+    // dnf-automatic timer is masked; show the days remaining + a Resume flip.
+    let now = now_secs();
+    let pause: Element<Message> = if state.update_paused_until > now {
+        let days = (state.update_paused_until - now).div_ceil(86_400);
+        Row::new()
+            .spacing(8.0)
+            .align_y(iced::alignment::Vertical::Center)
+            .push(
+                text(format!(
+                    "Updates paused — {days} day{} remaining",
+                    if days == 1 { "" } else { "s" }
+                ))
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+            )
+            .push(
+                mouse_area(
+                    text("Resume updates")
+                        .size(metrics::UI_PX)
+                        .color(palette::accent()),
+                )
+                .on_press(Message::ResumeUpdates),
+            )
+            .into()
+    } else {
+        mouse_area(
+            text("Pause updates for 7 days")
+                .size(metrics::UI_PX)
+                .color(palette::accent()),
+        )
+        .on_press(Message::PauseUpdates)
+        .into()
+    };
+    col = col.push(pause);
     // The pending-update list (E13.3): package + candidate version, scrollable.
     if !pending.is_empty() {
         let mut list = Column::new().spacing(0.0);
@@ -1818,6 +1892,19 @@ fn mode_button<'a>(label: &'a str, selected: bool, msg: Message) -> Element<'a, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pause_steps_seven_days_capped_at_thirty_five() {
+        const DAY: u64 = 86_400;
+        let now = 1_000_000;
+        // First pause → 7 days from now.
+        assert_eq!(next_pause(0, now), now + 7 * DAY);
+        // Already paused → step another 7 (14 total).
+        assert_eq!(next_pause(now + 7 * DAY, now), now + 14 * DAY);
+        // Capped at 35 days from now, never further.
+        assert_eq!(next_pause(now + 35 * DAY, now), now + 35 * DAY);
+        assert_eq!(next_pause(now + 30 * DAY, now), now + 35 * DAY);
+    }
 
     #[test]
     fn live_pages_map_to_real_backends() {

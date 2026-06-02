@@ -211,6 +211,10 @@ pub struct MenuState {
     /// (E2.9). All open `mde search`; "box" is a wider labelled pill.
     #[serde(default = "def_search_mode")]
     pub win10_search_mode: String,
+    /// Settings ▸ Update "Pause updates" until this Unix-seconds time (E13.4);
+    /// 0 = not paused. While in the future the dnf-automatic timer is masked.
+    #[serde(default)]
+    pub update_paused_until: u64,
     /// Win10 Explorer ▸ Quick access user-pinned folders (E8.3): appended to the
     /// auto-pinned standard folders in the Frequent-folders list.
     #[serde(default)]
@@ -258,6 +262,7 @@ impl Default for MenuState {
             taskbar_location: def_taskbar_location(),
             win10_show_taskview: true,
             win10_search_mode: def_search_mode(),
+            update_paused_until: 0,
             explorer_pins: Vec::new(),
             explorer_landing: def_explorer_landing(),
         }
@@ -370,6 +375,7 @@ mod tests {
             taskbar_location: "top".into(),
             win10_show_taskview: false,
             win10_search_mode: "box".into(),
+            update_paused_until: 1_900_000_000,
             explorer_pins: vec![PathBuf::from("/home/me/Projects")],
             explorer_landing: "thispc".into(),
         };
