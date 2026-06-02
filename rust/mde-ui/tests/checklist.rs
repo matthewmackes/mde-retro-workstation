@@ -87,6 +87,26 @@ fn bevel_endpoints_match_checklist() {
     assert_eq!(palette::BUTTON_DK_SHADOW, (0x40, 0x40, 0x40));
 }
 
+/// D2 (E20.2): `draw_edge` (and the scrollbar track + control radius) flatten via
+/// the single `palette::is_flat()` predicate, which must fire for BOTH flat eras —
+/// Carbon and the Carbon-skinned Windows 10 — and NOT for the 3D Win2000/BeOS. So
+/// narrowing it back to `is_carbon()` (Win10 → 3D bevel) fails CI. The atomics are
+/// process-global, so hold the guard and restore the default at the end.
+#[test]
+fn flat_chrome_covers_carbon_and_windows10() {
+    use mde_ui::palette::Theme;
+    let _g = THEME_GUARD.lock().unwrap();
+    palette::set_theme(Theme::Carbon);
+    assert!(palette::is_flat(), "Carbon must use flat chrome");
+    palette::set_theme(Theme::Windows10);
+    assert!(palette::is_flat(), "Windows 10 must use flat chrome (D2)");
+    palette::set_theme(Theme::Win2000);
+    assert!(!palette::is_flat(), "Win2000 keeps the 3D bevel");
+    palette::set_theme(Theme::Beos);
+    assert!(!palette::is_flat(), "BeOS keeps the 3D bevel");
+    palette::set_theme(Theme::Carbon); // restore the default
+}
+
 /// `color()` must round-trip an 8-bit channel exactly (no gamma surprises).
 #[test]
 fn color_conversion_is_exact_8bit() {

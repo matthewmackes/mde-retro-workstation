@@ -28,8 +28,9 @@ use crate::palette;
 /// bevel (a rail scroller is one color + one border), so this is the closest
 /// faithful approximation. Pass to `scrollable(...).style(mde_ui::scrollbar)`.
 pub fn scrollbar(_theme: &iced::Theme, _status: scrollable::Status) -> scrollable::Style {
-    // Carbon: a thin flat track with a gray thumb, no 3D edge / arrow buttons.
-    let rail = if palette::is_carbon() {
+    // Flat eras (Carbon / Win10): a thin flat track with a gray thumb, no 3D edge
+    // / arrow buttons.
+    let rail = if palette::is_flat() {
         scrollable::Rail {
             background: Some(Background::Color(palette::color(palette::MENU))),
             border: Border::default(),
@@ -64,10 +65,10 @@ pub fn scrollbar(_theme: &iced::Theme, _status: scrollable::Status) -> scrollabl
     }
 }
 
-/// Corner radius for fields/controls under the active theme (Carbon = 2px,
-/// Win2000/BeOS = square).
+/// Corner radius for fields/controls under the active theme (flat eras
+/// Carbon/Win10 = 2px, the 3D Win2000/BeOS = square).
 fn ctl_radius() -> iced::border::Radius {
-    if palette::is_carbon() {
+    if palette::is_flat() {
         2.0.into()
     } else {
         0.0.into()
@@ -169,11 +170,11 @@ pub(crate) fn draw_edge<R: renderer::Renderer>(
     face: Option<Color>,
 ) {
     let (x, y, w, h) = (rect.x, rect.y, rect.width, rect.height);
-    // Carbon: no 3D bevel. One flat fill + a single 1px subtle border, 2px
-    // radius. Collapses raised/sunken/pressed into the same flat surface; the
-    // face color (and accent on active states, chosen by the caller) carries
-    // all the meaning. `bevel`/`thickness` are intentionally ignored here.
-    if palette::is_carbon() {
+    // Flat eras (Carbon / Win10): no 3D bevel. One flat fill + a single 1px subtle
+    // border, 2px radius. Collapses raised/sunken/pressed into the same flat
+    // surface; the face color (and accent on active states, chosen by the caller)
+    // carries all the meaning. `bevel`/`thickness` are intentionally ignored here.
+    if palette::is_flat() {
         let _ = (bevel, thickness);
         r.fill_quad(
             renderer::Quad {

@@ -160,6 +160,16 @@ pub fn is_windows10() -> bool {
     theme() == Theme::Windows10
 }
 
+/// Whether the active theme renders **flat** (non-3D) chrome. Carbon and the
+/// Carbon-skinned Windows 10 era both drop the Win2000 raised/sunken bevel for a
+/// flat fill + 2px-radius border (D2); Win2000 and BeOS keep the 3D edge. This is
+/// the single predicate every flat-vs-3D branch reads — the `draw_edge` bevel, the
+/// scrollbar track, the control corner radius — so the two flat eras can't drift
+/// from the two 3D ones.
+pub fn is_flat() -> bool {
+    is_carbon() || is_windows10()
+}
+
 /// Map a Win2000 role color to its BeOS equivalent (light-gray panels, softer
 /// bevels, a blue selection; white/black pass through). Roles that share a
 /// Win2000 value share the BeOS value — they're the same surface concept.
