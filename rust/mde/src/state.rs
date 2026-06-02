@@ -185,6 +185,10 @@ pub struct MenuState {
     /// Win10 Start ▸ "Show more tiles" — widens the tile grid (E7.8).
     #[serde(default)]
     pub start_more_tiles: bool,
+    /// Win10 Start ▸ "Use Start full screen" — the opaque full-window Start layout
+    /// instead of the compact bottom-left panel (E7.8b).
+    #[serde(default)]
+    pub start_full_screen: bool,
     /// Win10 Start ▸ "Show recently added apps" (E7.8). Default on.
     #[serde(default = "def_true")]
     pub start_show_recent: bool,
@@ -247,6 +251,7 @@ impl Default for MenuState {
             win10_accent: 0,
             themes: Vec::new(),
             start_more_tiles: false,
+            start_full_screen: false,
             start_show_recent: true,
             start_show_suggested: true,
             start_folders: def_start_folders(),
@@ -358,6 +363,7 @@ mod tests {
                 dark: true,
             }],
             start_more_tiles: true,
+            start_full_screen: true,
             start_show_recent: false,
             start_show_suggested: true,
             start_folders: vec!["documents".into(), "music".into()],

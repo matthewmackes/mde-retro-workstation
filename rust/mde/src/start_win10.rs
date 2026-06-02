@@ -193,6 +193,8 @@ struct Start {
     context: Option<Ctx>,
     /// Start ▸ settings (E7.8): wider tile grid + section visibility.
     more_tiles: bool,
+    /// Start ▸ "Use Start full screen" (E7.8b): opaque full-window layout.
+    full_screen: bool,
     show_recent: bool,
     show_suggested: bool,
     /// The system-folder keys shown in the rail (E7.8a), in saved order.
@@ -333,6 +335,7 @@ fn launch() -> Result<(), iced_layershell::Error> {
                     apps,
                     context: None,
                     more_tiles: st.start_more_tiles,
+                    full_screen: st.start_full_screen,
                     show_recent: st.start_show_recent,
                     show_suggested: st.start_show_suggested,
                     folders: st.start_folders,
@@ -488,41 +491,57 @@ fn view(start: &Start) -> Element<'_, Message> {
                 .width(Length::Fixed(tiles_w(start.more_tiles) + 16.0)),
         );
 
-    let panel = container(container(regions).padding(8.0))
-        .height(Length::Fixed(PANEL_H))
-        .style(|_| container::Style {
-            background: Some(Background::Color(palette::color(palette::MENU))),
-            border: Border {
-                color: palette::color(palette::WINDOW_FRAME),
-                width: 1.0,
-                radius: 2.0.into(),
-            },
-            shadow: Shadow {
-                color: Color {
-                    a: 0.35,
-                    ..Color::BLACK
-                },
-                offset: iced::Vector::new(0.0, 2.0),
-                blur_radius: 12.0,
-            },
-            ..container::Style::default()
-        });
-
-    // Backdrop click-catcher closes Start; the panel sits bottom-left above the bar.
-    let mut layers = iced::widget::stack![
-        mouse_area(Space::new(Length::Fill, Length::Fill)).on_press(Message::Close),
-        container(panel)
+    // Two layouts (E7.8b): the compact floating panel bottom-left, or — when
+    // "Use Start full screen" is on — an opaque full-window panel with the regions
+    // centered. The layer surface is already all-edges; only the panel fill and the
+    // backdrop differ. Fullscreen has no click-outside (Esc / the Start button
+    // close it, as in Windows 10); the compact panel keeps its click-catcher.
+    let mut layers = if start.full_screen {
+        iced::widget::stack![container(container(regions).padding(24.0))
             .width(Length::Fill)
             .height(Length::Fill)
-            .align_x(Horizontal::Left)
-            .align_y(Vertical::Bottom)
-            .padding(Padding {
-                top: 0.0,
-                right: 0.0,
-                bottom: BAR_H + 2.0,
-                left: 2.0,
-            }),
-    ];
+            .align_x(Horizontal::Center)
+            .align_y(Vertical::Center)
+            .style(|_| container::Style {
+                background: Some(Background::Color(palette::color(palette::MENU))),
+                ..container::Style::default()
+            })]
+    } else {
+        let panel = container(container(regions).padding(8.0))
+            .height(Length::Fixed(PANEL_H))
+            .style(|_| container::Style {
+                background: Some(Background::Color(palette::color(palette::MENU))),
+                border: Border {
+                    color: palette::color(palette::WINDOW_FRAME),
+                    width: 1.0,
+                    radius: 2.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color {
+                        a: 0.35,
+                        ..Color::BLACK
+                    },
+                    offset: iced::Vector::new(0.0, 2.0),
+                    blur_radius: 12.0,
+                },
+                ..container::Style::default()
+            });
+
+        iced::widget::stack![
+            mouse_area(Space::new(Length::Fill, Length::Fill)).on_press(Message::Close),
+            container(panel)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Horizontal::Left)
+                .align_y(Vertical::Bottom)
+                .padding(Padding {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: BAR_H + 2.0,
+                    left: 2.0,
+                }),
+        ]
+    };
     // A right-clicked tile / app shows a context menu (fixed offset, like menu.rs).
     if let Some(ctx) = &start.context {
         layers = layers.push(

@@ -363,6 +363,8 @@ struct Settings {
     themes: Vec<crate::state::SavedTheme>,
     /// Start page toggles (E7.8), consumed by `start_win10`.
     start_more_tiles: bool,
+    /// Start ▸ "Use Start full screen" (E7.8b).
+    start_full_screen: bool,
     start_show_recent: bool,
     start_show_suggested: bool,
     /// Start rail system folders (E7.8a): the chosen `start_win10::START_FOLDERS` keys.
@@ -397,6 +399,8 @@ enum Message {
     ApplyTheme(usize),
     // Start page (E7.8).
     SetStartMore(bool),
+    /// Start ▸ "Use Start full screen" (E7.8b).
+    SetStartFullScreen(bool),
     SetStartRecent(bool),
     SetStartSuggested(bool),
     /// Toggle a system folder's presence in the Start rail (E7.8a).
@@ -521,6 +525,7 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 bg_mode: BgMode::Fill,
                 themes: st.themes.clone(),
                 start_more_tiles: st.start_more_tiles,
+                start_full_screen: st.start_full_screen,
                 start_show_recent: st.start_show_recent,
                 start_show_suggested: st.start_show_suggested,
                 start_folders: st.start_folders.clone(),
@@ -583,6 +588,10 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         Message::ApplyTheme(i) => apply_theme(state, i),
         Message::SetStartMore(v) => {
             state.start_more_tiles = v;
+            persist(state);
+        }
+        Message::SetStartFullScreen(v) => {
+            state.start_full_screen = v;
             persist(state);
         }
         Message::SetStartRecent(v) => {
@@ -789,6 +798,7 @@ fn persist(state: &Settings) {
     st.theme_mode = if state.dark { "dark" } else { "light" }.to_string();
     st.win10_accent = state.win10_accent;
     st.start_more_tiles = state.start_more_tiles;
+    st.start_full_screen = state.start_full_screen;
     st.start_show_recent = state.start_show_recent;
     st.start_show_suggested = state.start_show_suggested;
     st.start_folders = state.start_folders.clone();
@@ -1305,6 +1315,11 @@ fn start_page(state: &Settings) -> Element<'_, Message> {
             Message::SetStartMore,
         ))
         .push(row(
+            "Use Start full screen",
+            state.start_full_screen,
+            Message::SetStartFullScreen,
+        ))
+        .push(row(
             "Show recently added apps",
             state.start_show_recent,
             Message::SetStartRecent,
@@ -1334,12 +1349,7 @@ fn start_page(state: &Settings) -> Element<'_, Message> {
                 .style(mde_ui::checkbox_style),
         );
     }
-    col.push(
-        text("\"Use Start full screen\" is part of a later milestone.")
-            .size(metrics::UI_PX)
-            .color(palette::color(palette::GRAY_TEXT)),
-    )
-    .into()
+    col.into()
 }
 
 /// Personalization ▸ Taskbar (E7.9): the location dropdown drives the panel
