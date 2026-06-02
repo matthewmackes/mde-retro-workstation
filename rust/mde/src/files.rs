@@ -65,6 +65,11 @@ struct Files {
     sort_desc: bool,
     /// Which landing the main area renders (Win10 Quick access vs a folder).
     pane: Pane,
+    /// Win10 Quick access user-pinned folders (persisted `explorer_pins`, E8.3),
+    /// appended to the auto-pinned standard folders.
+    pins: Vec<PathBuf>,
+    /// The Quick access folder whose right-click Pin/Unpin menu is open, if any.
+    qctx: Option<PathBuf>,
 }
 
 /// The menubar titles (indices used by `open_menu` / ToggleMenu).
@@ -84,6 +89,10 @@ enum Message {
     TreeNav(PathBuf),
     /// Open a Quick access entry: enter the folder, or hand a file to xdg-open.
     OpenPath(PathBuf),
+    /// Right-click a Quick access folder row: open its Pin/Unpin menu.
+    QuickContext(PathBuf),
+    /// Toggle a folder's Quick access pin (`explorer_pins`) and persist it.
+    TogglePin(PathBuf),
     ToggleFolders,
     HeaderClick(usize),
     ToggleMenu(usize),
@@ -123,6 +132,7 @@ pub fn run(args: &[String]) -> ExitCode {
 }
 
 fn launch(start: PathBuf, quick: bool) -> iced::Result {
+    let pins = crate::state::load().explorer_pins;
     iced::application(title, update, view)
         .theme(|_| iced::Theme::Light)
         .subscription(|_: &Files| event::listen().map(Message::Event))
@@ -154,6 +164,8 @@ fn launch(start: PathBuf, quick: bool) -> iced::Result {
                 } else {
                     Pane::Folder
                 },
+                pins,
+                qctx: None,
             };
             f.load();
             (f, Task::none())
@@ -394,6 +406,25 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
                 state.error = Some("Could not open this file.".to_string());
             }
         }
+        Message::QuickContext(p) => {
+            state.qctx = Some(p);
+            state.ctx = None;
+            state.open_menu = None;
+        }
+        Message::TogglePin(p) => {
+            state.ctx = None;
+            state.qctx = None;
+            if let Some(pos) = state.pins.iter().position(|x| x == &p) {
+                state.pins.remove(pos);
+            } else {
+                state.pins.push(p);
+            }
+            // Persist via a fresh load+save so we never clobber fields edited
+            // elsewhere; save() is atomic (§2.6).
+            let mut st = crate::state::load();
+            st.explorer_pins = state.pins.clone();
+            let _ = crate::state::save(&st);
+        }
         Message::ToggleFolders => state.show_tree = !state.show_tree,
         Message::HeaderClick(col) => {
             if state.sort_col == col {
@@ -460,7 +491,10 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             state.ctx = Some(i);
             state.open_menu = None;
         }
-        Message::CloseCtx => state.ctx = None,
+        Message::CloseCtx => {
+            state.ctx = None;
+            state.qctx = None;
+        }
         Message::CtxOpen => {
             let target = state.ctx.or(state.selected);
             state.ctx = None;
@@ -708,10 +742,11 @@ fn dropdown(state: &Files, i: usize) -> Element<'static, Message> {
     command_menu(menu_items(state, i))
 }
 
-/// The right-click context menu for a list row.
+/// The right-click context menu for a list row. Folders also offer Pin/Unpin to
+/// Quick access (E8.3), toggling by whether the path is in `pins`.
 fn context_menu(state: &Files) -> Element<'static, Message> {
     let has_clip = state.clipboard.is_some();
-    command_menu(vec![
+    let mut items = vec![
         ("Open", Message::CtxOpen, true),
         ("", Message::Noop, false),
         ("Cut", Message::CtxCut, true),
@@ -719,8 +754,37 @@ fn context_menu(state: &Files) -> Element<'static, Message> {
         ("Paste", Message::CtxPaste, has_clip),
         ("", Message::Noop, false),
         ("Delete", Message::CtxDelete, true),
+    ];
+    if let Some(e) = state.ctx.and_then(|i| state.entries.get(i)) {
+        if e.is_dir {
+            let pinned = state.pins.iter().any(|x| x == &e.path);
+            let label = if pinned {
+                "Unpin from Quick access"
+            } else {
+                "Pin to Quick access"
+            };
+            items.push(("", Message::Noop, false));
+            items.push((label, Message::TogglePin(e.path.clone()), true));
+        }
+    }
+    items.push(("", Message::Noop, false));
+    items.push(("Properties", Message::CtxProperties, true));
+    command_menu(items)
+}
+
+/// The right-click menu for a Quick access folder row: Open + Pin/Unpin (E8.3).
+fn quick_context_menu(state: &Files) -> Element<'static, Message> {
+    let p = state.qctx.clone().unwrap_or_default();
+    let pinned = state.pins.iter().any(|x| x == &p);
+    let pin_label = if pinned {
+        "Unpin from Quick access"
+    } else {
+        "Pin to Quick access"
+    };
+    command_menu(vec![
+        ("Open", Message::OpenPath(p.clone()), true),
         ("", Message::Noop, false),
-        ("Properties", Message::CtxProperties, true),
+        (pin_label, Message::TogglePin(p), true),
     ])
 }
 
@@ -1082,19 +1146,27 @@ fn user_dir(name: &str) -> Option<PathBuf> {
 
 /// Quick access "Frequent folders": the standard user folders that exist.
 /// (E8.3 appends the user's persisted pins.)
-fn frequent_folders() -> Vec<PathBuf> {
-    ["Desktop", "Documents", "Downloads", "Pictures"]
+fn frequent_folders(pins: &[PathBuf]) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = ["Desktop", "Documents", "Downloads", "Pictures"]
         .into_iter()
         .filter_map(user_dir)
-        .collect()
+        .collect();
+    // The user's persisted pins after the standard folders, skipping any that no
+    // longer exist or already appear (E8.3).
+    for p in pins {
+        if p.is_dir() && !v.contains(p) {
+            v.push(p.clone());
+        }
+    }
+    v
 }
 
 /// Quick access "Recent files": a live newest-first scan (by mtime) of the
 /// standard user folders + $HOME, one level deep, hidden files skipped, capped.
 /// Real mtimes rather than the recently-used registry, so it reflects actual
 /// file activity regardless of which app touched the file.
-fn recent_files() -> Vec<PathBuf> {
-    let mut roots = frequent_folders();
+fn recent_files(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = roots.to_vec();
     roots.extend(home());
     let mut files: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
     for dir in roots {
@@ -1178,11 +1250,12 @@ fn quick_row(p: &Path, is_folder: bool) -> Element<'static, Message> {
 
 /// The Win10 Quick access landing: a Frequent-folders section over a Recent-files
 /// section, each row navigable. Real folders + a live mtime scan, no mockups.
-fn quick_access() -> Element<'static, Message> {
+fn quick_access(state: &Files) -> Element<'_, Message> {
+    let folders = frequent_folders(&state.pins);
+    let recents = recent_files(&folders);
     let mut col = Column::new().spacing(0.0);
 
     col = col.push(section_header("Frequent folders"));
-    let folders = frequent_folders();
     if folders.is_empty() {
         col = col.push(
             container(text("No standard folders found.").size(metrics::UI_PX))
@@ -1190,14 +1263,16 @@ fn quick_access() -> Element<'static, Message> {
         );
     } else {
         for p in &folders {
-            col = col.push(quick_row(p, true));
+            // Folder rows carry a right-click Pin/Unpin menu (E8.3).
+            col = col.push(
+                mouse_area(quick_row(p, true)).on_right_press(Message::QuickContext(p.clone())),
+            );
         }
     }
 
     col = col.push(Space::with_height(Length::Fixed(10.0)));
 
     col = col.push(section_header("Recent files"));
-    let recents = recent_files();
     if recents.is_empty() {
         col = col.push(
             container(text("No recent files.").size(metrics::UI_PX))
@@ -1247,7 +1322,7 @@ fn view(state: &Files) -> Element<'_, Message> {
     // The main area: the Win10 Quick access landing (no path, Win10 era),
     // otherwise the folder body (left pane + details list). E8.2.
     let main: Element<'_, Message> = if palette::is_windows10() && state.pane == Pane::QuickAccess {
-        quick_access()
+        quick_access(state)
     } else {
         folder_body(state)
     };
@@ -1281,7 +1356,19 @@ fn view(state: &Files) -> Element<'_, Message> {
     // A right-click row context menu takes precedence; otherwise an open menubar
     // menu overlays its dropdown. Each adds a transparent full-window catcher so
     // a click (or right-click) anywhere else dismisses it.
-    if state.ctx.is_some() {
+    if state.qctx.is_some() {
+        let catcher = mouse_area(Space::new(Length::Fill, Length::Fill))
+            .on_press(Message::CloseCtx)
+            .on_right_press(Message::CloseCtx);
+        let positioned = Column::new()
+            .push(Space::with_height(Length::Fixed(state.cursor.y)))
+            .push(
+                Row::new()
+                    .push(Space::with_width(Length::Fixed(state.cursor.x)))
+                    .push(container(quick_context_menu(state)).width(Length::Fixed(170.0))),
+            );
+        iced::widget::stack![base, catcher, positioned].into()
+    } else if state.ctx.is_some() {
         let catcher = mouse_area(Space::new(Length::Fill, Length::Fill))
             .on_press(Message::CloseCtx)
             .on_right_press(Message::CloseCtx);

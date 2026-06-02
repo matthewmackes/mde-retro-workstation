@@ -194,6 +194,11 @@ pub struct MenuState {
     /// (E2.9). All open `mde search`; "box" is a wider labelled pill.
     #[serde(default = "def_search_mode")]
     pub win10_search_mode: String,
+    /// Win10 Explorer ▸ Quick access user-pinned folders (E8.3): appended to the
+    /// auto-pinned standard folders in the Frequent-folders list. (The landing
+    /// choice `explorer_landing` lands with E8.4, alongside its This-PC consumer.)
+    #[serde(default)]
+    pub explorer_pins: Vec<PathBuf>,
 }
 
 fn def_true() -> bool {
@@ -227,6 +232,7 @@ impl Default for MenuState {
             taskbar_location: def_taskbar_location(),
             win10_show_taskview: true,
             win10_search_mode: def_search_mode(),
+            explorer_pins: Vec::new(),
         }
     }
 }
@@ -335,6 +341,7 @@ mod tests {
             taskbar_location: "top".into(),
             win10_show_taskview: false,
             win10_search_mode: "box".into(),
+            explorer_pins: vec![PathBuf::from("/home/me/Projects")],
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);
