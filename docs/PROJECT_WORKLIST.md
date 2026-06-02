@@ -59,10 +59,20 @@ confirmed; full table in `docs/COMPLIANCE.md`). All 14 resolved this pass:**
   docs the first sweep (top-level prose only) never reached: `main.rs` USAGE
   (`--help`), `panel.rs`, `files.rs`, `display.rs`, `install.rs`, `action_center.rs`,
   `search.rs`, `palette.rs` (ACTIVE_TITLE), `metrics.rs` (SIZE/FIXED_FRAME).
-- [ ] **E3-urgent-tint** Wire a danger-red tint for critical toasts
+- [✓] **E3-urgent-tint** Wire a danger-red tint for critical toasts
   (`hint_urgency >= 2`): add an urgent role to `palette.rs` remapped in
   `win10()`/`carbon()`, applied in `action_center.rs::toast_view` (which today only
-  suppresses auto-dismiss for critical). Verify via a windows10 toast capture.
+  suppresses auto-dismiss for critical). Verify via a windows10 toast capture. —
+  Re-added `palette::URGENT` (the role the 2nd audit had removed as dead) — now
+  **wired**: `action_center.rs::toast_view` computes `critical = hint_urgency >= 2`
+  and tints the critical toast danger-red — a red summary + a 2px red border — via
+  `palette::color(palette::URGENT)`. `carbon()` already carried the `URGENT → Carbon
+  danger red` arm (dark-aware `#fa4d56` / light `#da1e28`), reachable again now that
+  the const exists; `win10()` falls through to it (so no redundant arm). `URGENT`
+  pinned in `checklist.rs`; `SPEC-windows10`:286 corrected (the tint is wired, no
+  longer "removed/follow-up"). Verified by captures: a `hint_urgency:2` toast
+  ("Battery critically low") shows a red summary + red border; a normal (urgency 1)
+  toast is unchanged — both no-panic.
 - [✓] **install-assets-sway-drift** `assets/install-assets.sh` (shipped to
   `/usr/share/mde/scripts/`, run live by `mde install --assets` → `install.rs`).
   **Investigated 2026-06-02 — a real broken-feature bug, not just cosmetic drift:**

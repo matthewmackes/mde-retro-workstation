@@ -156,6 +156,8 @@ fn app_chrome_colors_are_pinned() {
     assert_eq!(palette::LOGO_BANNER_GLOW_FADE, (0x0a, 0x1a, 0x40));
     assert_eq!(palette::LOGO_TEXT, (0xff, 0xff, 0xff));
     assert_eq!(palette::LOGO_TEXT_ACCENT, (0x6f, 0x9f, 0xe0));
+    // Critical/danger role (wired into the critical-toast tint, E3).
+    assert_eq!(palette::URGENT, (0x80, 0x00, 0x00));
 }
 
 // --- Metrics ---------------------------------------------------------------

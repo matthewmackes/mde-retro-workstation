@@ -50,6 +50,9 @@ pub const GRAY_TEXT: Rgb = (0x80, 0x80, 0x80); // disabled
 
 pub const INFO_TEXT: Rgb = (0x00, 0x00, 0x00); // tooltip
 pub const INFO_WINDOW: Rgb = (0xff, 0xff, 0xe1);
+/// Critical/danger accent (Win2000 maroon; `carbon()`/`win10()` remap it to a
+/// Carbon Red 60 danger red). Drives the critical-notification toast tint (E3).
+pub const URGENT: Rgb = (0x80, 0x00, 0x00);
 
 // --- MDE-Retro app chrome (NOT GetSysColor) --------------------------------
 // Colors for surfaces Windows 2000 drew with bespoke art rather than a system

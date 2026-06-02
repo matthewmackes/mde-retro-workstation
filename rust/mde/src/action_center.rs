@@ -632,13 +632,21 @@ fn toast_update(state: &mut Toast, message: ToastMsg) -> Task<ToastMsg> {
 
 fn toast_view(state: &Toast) -> Element<'_, ToastMsg> {
     let n = &state.note;
+    // Critical notifications (urgency >= 2) get a danger-red tint — a red summary
+    // and a 2px red border — so they read as urgent at a glance (E3).
+    let critical = n.hint_urgency >= 2;
     let head = Row::new()
         .align_y(Vertical::Center)
         .push(
             text(n.summary.clone())
                 .size(metrics::UI_PX)
                 .font(mde_ui::font::ui_bold())
-                .width(Length::Fill),
+                .width(Length::Fill)
+                .color(if critical {
+                    palette::color(palette::URGENT)
+                } else {
+                    palette::color(palette::WINDOW_TEXT)
+                }),
         )
         .push(
             mouse_area(
@@ -667,11 +675,15 @@ fn toast_view(state: &Toast) -> Element<'_, ToastMsg> {
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(10.0)
-            .style(|_| container::Style {
+            .style(move |_| container::Style {
                 background: Some(Background::Color(palette::color(palette::MENU))),
                 border: Border {
-                    color: palette::color(palette::WINDOW_FRAME),
-                    width: 1.0,
+                    color: if critical {
+                        palette::color(palette::URGENT)
+                    } else {
+                        palette::color(palette::WINDOW_FRAME)
+                    },
+                    width: if critical { 2.0 } else { 1.0 },
                     radius: 2.0.into(),
                 },
                 shadow: Shadow {
