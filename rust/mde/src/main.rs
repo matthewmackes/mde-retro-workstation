@@ -26,6 +26,7 @@ mod icons;
 mod install;
 mod installer;
 mod menu;
+mod mount;
 mod notifyd;
 mod outputs;
 mod panel;
@@ -57,6 +58,7 @@ COMMANDS:
     menu [MODE]      Start menu (modes: main, programs, system, run)
     popup KIND       Context menu (kinds: taskbar, start) for the panel
     files [PATH]     Explorer-style file manager
+    mount URI        Mount a remote share (smb://, sftp://…); prints its local path
     control-panel    Windows 2000 Control Panel
     display [--outputs]   Display Properties (resolution, wallpaper, screen saver)
     filedialog [--save] [--filter ...]   Common Open/Save file dialog (prints path)
@@ -151,6 +153,7 @@ fn main() -> ExitCode {
         "popup" => popup::run(rest),
         "jumplist" => popup::run_jumplist(rest),
         "files" => files::run(rest),
+        "mount" => mount::run(rest),
         "control-panel" => control_panel::run(rest),
         "display" => display::run(rest),
         "filedialog" => filedialog::run(rest),
