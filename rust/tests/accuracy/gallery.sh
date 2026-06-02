@@ -96,6 +96,37 @@ shot log-off          logoff
 shot shut-down        shutdown
 shot setup            setup --gui
 
+# --- era parity: panel / menu / files under all four themes (E0.9) -----------
+# Sandbox the theme via XDG_CONFIG_HOME so we never touch the user's real
+# menu.json (state.rs::config_path honours it). BeOS is theme=win2000 + the Haiku
+# icon set (main.rs maps that pair to Theme::Beos); the rest are direct theme
+# keys. Panel anchor differs per era, so the crop does too: Carbon → top 32px,
+# Win2000/Windows10 → bottom (Win10 a taller 40px bar), BeOS → left 115px.
+echo "gallery: capturing era parity (carbon · win2000 · windows10 · beos)…"
+era_cfg="$(mktemp -d)"; mkdir -p "$era_cfg/mde"
+export XDG_CONFIG_HOME="$era_cfg"
+for era in "carbon:carbon::0,0 1280x40" \
+           "win2000:win2000::0,920 1280x40" \
+           "windows10:windows10::0,920 1280x40" \
+           "beos:win2000:haiku:0,0 120x960"; do
+    IFS=: read -r label theme iconset pcrop <<< "$era"
+    printf '{"theme":"%s","theme_mode":"dark","icon_set":"%s"}\n' "$theme" "$iconset" \
+        > "$era_cfg/mde/menu.json"
+    shot "panel-$label" --crop "$pcrop" panel
+    shot "menu-$label"  menu
+    shot "files-$label" files "$HOME"
+done
+unset XDG_CONFIG_HOME
+rm -rf "$era_cfg"
+
+# Era-comparison strip of the four taskbars (the Win10 accent is the tell).
+if command -v montage >/dev/null 2>&1; then
+    montage "$out"/panel-carbon.png "$out"/panel-win2000.png \
+            "$out"/panel-windows10.png "$out"/panel-beos.png \
+            -tile 1x -geometry +0+4 -background '#222' -title "MDE-Retro — taskbar per era" \
+            "$out/_era-taskbars.png" 2>/dev/null && echo "    -> _era-taskbars.png" || true
+fi
+
 # --- optional contact sheet --------------------------------------------------
 if command -v montage >/dev/null 2>&1; then
     echo "gallery: assembling contact sheet…"

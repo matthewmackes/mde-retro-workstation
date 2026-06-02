@@ -42,9 +42,10 @@ pub struct MenuState {
     /// classic icons; "haiku" ⇒ the Haiku OS icon theme. Distinct from `theme`.
     #[serde(default)]
     pub icon_set: String,
-    /// Look-and-feel theme: "carbon" (default), "win2000", "beos", or
-    /// "windows10". Free-form; `main.rs` maps it to a `palette::Theme` and falls
-    /// back to Carbon for anything unrecognized.
+    /// Look-and-feel theme: "carbon" (default), "win2000", or "windows10"
+    /// (BeOS is "win2000" + the Haiku `icon_set`, which `main.rs` maps to
+    /// `Theme::Beos`). Free-form; `main.rs` falls back to Carbon for anything
+    /// unrecognized.
     #[serde(default = "def_theme")]
     pub theme: String,
     /// Carbon light/dark mode: "dark" (default) or "light".
