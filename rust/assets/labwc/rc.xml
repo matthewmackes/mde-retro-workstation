@@ -26,11 +26,21 @@
     <raiseOnFocus>yes</raiseOnFocus>
   </focus>
 
+  <!-- Drag-to-edge window snapping (Win10 Snap; labwc performs it). -->
+  <snapping>
+    <range>12</range>
+    <topMaximize>yes</topMaximize>
+  </snapping>
+
   <keyboard>
     <!-- Window management (Win2000-style). -->
     <keybind key="A-F4"><action name="Close"/></keybind>
     <keybind key="W-Up"><action name="ToggleMaximize"/></keybind>
     <keybind key="W-m"><action name="Iconify"/></keybind>
+    <!-- Win10 Snap: tile to a half (labwc performs the snap; mde never moves windows). -->
+    <keybind key="W-Left"><action name="SnapToEdge"><direction>left</direction></action></keybind>
+    <keybind key="W-Right"><action name="SnapToEdge"><direction>right</direction></action></keybind>
+    <keybind key="W-Down"><action name="Iconify"/></keybind>
     <keybind key="A-Tab"><action name="NextWindow"/></keybind>
     <keybind key="A-S-Tab"><action name="PreviousWindow"/></keybind>
 
@@ -39,6 +49,7 @@
     <keybind key="C-Escape"><action name="Execute"><command>mde start</command></action></keybind>
     <keybind key="W-e"><action name="Execute"><command>mde files</command></action></keybind>
     <keybind key="W-a"><action name="Execute"><command>mde action-center</command></action></keybind>
+    <keybind key="W-Tab"><action name="Execute"><command>mde task-view</command></action></keybind>
     <keybind key="W-r"><action name="Execute"><command>mde run</command></action></keybind>
     <keybind key="W-Return"><action name="Execute"><command>foot</command></action></keybind>
 

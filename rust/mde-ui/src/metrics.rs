@@ -52,3 +52,5 @@ pub const WIZARD_STATUS_PX: f32 = 10.0;
 pub const IDENTIFY_PX: f32 = 48.0;
 /// Title-bar font is the UI font, bold, at the same size.
 pub const TITLE_FONT_BOLD: bool = true;
+/// The Windows 10 Task View window-tile size (px) — a square-ish window card.
+pub const TASKVIEW_TILE: f32 = 200.0;

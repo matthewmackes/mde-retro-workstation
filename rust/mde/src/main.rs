@@ -35,6 +35,7 @@ mod start_win10;
 mod state;
 mod sysinfo;
 mod system_properties;
+mod task_view;
 mod taskbar_properties;
 mod tray;
 mod tui_setup;
@@ -123,6 +124,7 @@ fn main() -> ExitCode {
         "start-win10" => start_win10::run(rest),
         "action-center" => action_center::run_center(rest),
         "toast" => action_center::run_toast(rest),
+        "task-view" => task_view::run(rest),
         // Per-era Start dispatcher for the labwc keybind: opens the right Start
         // for the active theme (the startup block above already set it).
         "start" => {
