@@ -732,6 +732,34 @@ fn toolbar(state: &Files) -> Element<'_, Message> {
     .into()
 }
 
+/// The Windows 10 Explorer command bar (E8.1): a flat row of the file actions
+/// that replaces the Win2000 menubar+toolbar under the Win10 theme. Selection-
+/// dependent actions are disabled when nothing is selected; Paste needs a
+/// clipboard. Each reuses the existing Ctx* messages (they target
+/// `ctx.or(selected)`). No Rename — files.rs has no rename action yet.
+fn command_bar(state: &Files) -> Element<'_, Message> {
+    let sel = state.selected.is_some();
+    let row = Row::new()
+        .spacing(2.0)
+        .padding(2.0)
+        .push(tool("New folder", Some(Message::NewFolder)))
+        .push(tool("Cut", sel.then_some(Message::CtxCut)))
+        .push(tool("Copy", sel.then_some(Message::CtxCopy)))
+        .push(tool(
+            "Paste",
+            state.clipboard.as_ref().map(|_| Message::CtxPaste),
+        ))
+        .push(tool("Delete", sel.then_some(Message::CtxDelete)))
+        .push(tool("Properties", sel.then_some(Message::CtxProperties)));
+    container(iced::widget::stack![
+        frame::raised().thickness(1),
+        container(row).width(Length::Fill)
+    ])
+    .width(Length::Fill)
+    .height(Length::Fixed(26.0))
+    .into()
+}
+
 fn address_bar(state: &Files) -> Element<'_, Message> {
     Row::new()
         .spacing(6.0)
@@ -1033,12 +1061,23 @@ fn view(state: &Files) -> Element<'_, Message> {
                 .padding(2.0),
         );
 
-    let content = Column::new()
-        .push(menubar(state))
-        .push(toolbar(state))
-        .push(address_bar(state))
-        .push(container(body).width(Length::Fill).height(Length::Fill))
-        .push(status_bar(state));
+    // Win10 era: a flat command bar replaces the Win2000 menubar+toolbar (E8.1).
+    // Other eras render the classic chrome unchanged.
+    let body = container(body).width(Length::Fill).height(Length::Fill);
+    let content = if palette::is_windows10() {
+        Column::new()
+            .push(command_bar(state))
+            .push(address_bar(state))
+            .push(body)
+            .push(status_bar(state))
+    } else {
+        Column::new()
+            .push(menubar(state))
+            .push(toolbar(state))
+            .push(address_bar(state))
+            .push(body)
+            .push(status_bar(state))
+    };
 
     let base = container(content)
         .width(Length::Fill)
