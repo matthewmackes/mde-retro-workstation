@@ -136,6 +136,29 @@ fn windows10_remap_pins() {
     let w = palette::color(palette::WINDOW);
     assert_eq!((ch(w.r), ch(w.g), ch(w.b)), (0xff, 0xff, 0xff));
 
+    // E20.1 — ACTIVE_TITLE routes to the accent too (the focused title bar IS the
+    // accent under Win10), pinned in both modes from its own raw const (distinct
+    // from HIGHLIGHT, so a divergent ACTIVE_TITLE value would be caught here).
+    palette::set_dark(false);
+    let at = palette::color(palette::ACTIVE_TITLE);
+    assert_eq!((ch(at.r), ch(at.g), ch(at.b)), palette::win10_accent());
+    palette::set_dark(true);
+    let at = palette::color(palette::ACTIVE_TITLE);
+    assert_eq!((ch(at.r), ch(at.g), ch(at.b)), palette::win10_accent());
+
+    // E20.1 — the desktop + panel/menu surface neutrals (the cool-neutral era
+    // tell), pinned in BOTH modes so a light/dark surface drift fails CI.
+    palette::set_dark(false);
+    let bg = palette::color(palette::BACKGROUND); // desktop
+    assert_eq!((ch(bg.r), ch(bg.g), ch(bg.b)), (0xe6, 0xe6, 0xe6));
+    let mn = palette::color(palette::MENU); // panel / menu / face
+    assert_eq!((ch(mn.r), ch(mn.g), ch(mn.b)), (0xf3, 0xf3, 0xf3));
+    palette::set_dark(true);
+    let bg = palette::color(palette::BACKGROUND);
+    assert_eq!((ch(bg.r), ch(bg.g), ch(bg.b)), (0x1f, 0x1f, 0x1f));
+    let mn = palette::color(palette::MENU);
+    assert_eq!((ch(mn.r), ch(mn.g), ch(mn.b)), (0x2b, 0x2b, 0x2b));
+
     // Restore the process-global default for other tests.
     palette::set_win10_accent(0);
     palette::set_theme(Theme::Win2000);
