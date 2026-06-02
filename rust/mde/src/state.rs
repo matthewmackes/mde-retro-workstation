@@ -199,6 +199,10 @@ pub struct MenuState {
     /// choice `explorer_landing` lands with E8.4, alongside its This-PC consumer.)
     #[serde(default)]
     pub explorer_pins: Vec<PathBuf>,
+    /// Win10 Explorer default landing when launched with no path: "quick" (Quick
+    /// access, the default) or "thispc" (This PC). Read by `files::run` (E8.4).
+    #[serde(default = "def_explorer_landing")]
+    pub explorer_landing: String,
 }
 
 fn def_true() -> bool {
@@ -209,6 +213,9 @@ fn def_taskbar_location() -> String {
 }
 fn def_search_mode() -> String {
     "button".into()
+}
+fn def_explorer_landing() -> String {
+    "quick".into()
 }
 
 impl Default for MenuState {
@@ -233,6 +240,7 @@ impl Default for MenuState {
             win10_show_taskview: true,
             win10_search_mode: def_search_mode(),
             explorer_pins: Vec::new(),
+            explorer_landing: def_explorer_landing(),
         }
     }
 }
@@ -342,6 +350,7 @@ mod tests {
             win10_show_taskview: false,
             win10_search_mode: "box".into(),
             explorer_pins: vec![PathBuf::from("/home/me/Projects")],
+            explorer_landing: "thispc".into(),
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);

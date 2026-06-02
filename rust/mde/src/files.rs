@@ -32,6 +32,7 @@ struct Entry {
 enum Pane {
     Folder,
     QuickAccess,
+    ThisPc,
 }
 
 struct Files {
@@ -93,6 +94,9 @@ enum Message {
     QuickContext(PathBuf),
     /// Toggle a folder's Quick access pin (`explorer_pins`) and persist it.
     TogglePin(PathBuf),
+    /// Switch the Win10 nav pane to Quick access / This PC.
+    ShowQuick,
+    ShowThisPc,
     ToggleFolders,
     HeaderClick(usize),
     ToggleMenu(usize),
@@ -114,15 +118,23 @@ enum Message {
 }
 
 pub fn run(args: &[String]) -> ExitCode {
+    let st = crate::state::load();
     // An explicit directory argument always opens that folder. With no argument,
-    // Win10 lands on Quick access (its default); other eras open the home folder.
+    // Win10 lands on its configured landing (Quick access or This PC, per
+    // `explorer_landing`); other eras open the home folder.
     let explicit = args.first().map(PathBuf::from).filter(|p| p.is_dir());
     let start = explicit
         .clone()
         .or_else(home)
         .unwrap_or_else(|| PathBuf::from("/"));
-    let quick = explicit.is_none() && palette::is_windows10();
-    match launch(start, quick) {
+    let pane = if explicit.is_some() || !palette::is_windows10() {
+        Pane::Folder
+    } else if st.explorer_landing == "thispc" {
+        Pane::ThisPc
+    } else {
+        Pane::QuickAccess
+    };
+    match launch(start, pane, st.explorer_pins) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("mde files: {e}");
@@ -131,8 +143,7 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
-fn launch(start: PathBuf, quick: bool) -> iced::Result {
-    let pins = crate::state::load().explorer_pins;
+fn launch(start: PathBuf, pane: Pane, pins: Vec<PathBuf>) -> iced::Result {
     iced::application(title, update, view)
         .theme(|_| iced::Theme::Light)
         .subscription(|_: &Files| event::listen().map(Message::Event))
@@ -159,11 +170,7 @@ fn launch(start: PathBuf, quick: bool) -> iced::Result {
                 clipboard: None,
                 sort_col: 0,
                 sort_desc: false,
-                pane: if quick {
-                    Pane::QuickAccess
-                } else {
-                    Pane::Folder
-                },
+                pane,
                 pins,
                 qctx: None,
             };
@@ -425,6 +432,8 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             st.explorer_pins = state.pins.clone();
             let _ = crate::state::save(&st);
         }
+        Message::ShowQuick => state.pane = Pane::QuickAccess,
+        Message::ShowThisPc => state.pane = Pane::ThisPc,
         Message::ToggleFolders => state.show_tree = !state.show_tree,
         Message::HeaderClick(col) => {
             if state.sort_col == col {
@@ -944,6 +953,7 @@ fn status_bar(state: &Files) -> Element<'_, Message> {
     let msg = match &state.error {
         Some(e) => e.clone(),
         None if state.pane == Pane::QuickAccess => "Quick access".to_string(),
+        None if state.pane == Pane::ThisPc => "This PC".to_string(),
         None => format!("{} object(s)", state.entries.len()),
     };
     container(iced::widget::stack![
@@ -1294,6 +1304,229 @@ fn quick_access(state: &Files) -> Element<'_, Message> {
     .into()
 }
 
+// --- Win10 navigation pane + This PC (E8.4) --------------------------------
+
+/// A mounted volume from /proc/mounts (real block devices only).
+struct Drive {
+    mount: PathBuf,
+    dev: String,
+    fstype: String,
+    removable: bool,
+}
+
+/// Decode the octal escapes /proc/mounts uses for special chars in paths.
+fn unescape_mount(s: &str) -> String {
+    s.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+}
+
+/// Real mounted volumes from /proc/mounts: block-device mounts (source under
+/// `/dev/`), de-duped by mountpoint. Pseudo filesystems (proc/sys/tmpfs/…) are
+/// skipped. Unreadable/empty → the caller falls back to the filesystem root.
+fn drives() -> Vec<Drive> {
+    let txt = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+    let mut v: Vec<Drive> = Vec::new();
+    for line in txt.lines() {
+        let mut f = line.split_whitespace();
+        let (Some(dev), Some(mp), Some(fstype)) = (f.next(), f.next(), f.next()) else {
+            continue;
+        };
+        if !dev.starts_with("/dev/") {
+            continue;
+        }
+        let mp = unescape_mount(mp);
+        let removable =
+            mp.starts_with("/run/media") || mp.starts_with("/media") || mp.starts_with("/mnt");
+        v.push(Drive {
+            mount: PathBuf::from(mp),
+            dev: dev.to_string(),
+            fstype: fstype.to_string(),
+            removable,
+        });
+    }
+    v.sort_by(|a, b| a.mount.cmp(&b.mount));
+    v.dedup_by(|a, b| a.mount == b.mount);
+    v
+}
+
+/// A "Devices and drives" row: a drive icon, the volume label, and a device·fs
+/// hint. Clicking navigates into the mountpoint.
+fn drive_row(d: &Drive) -> Element<'static, Message> {
+    let label = if d.mount == Path::new("/") {
+        "Local Disk (/)".to_string()
+    } else {
+        let base = d
+            .mount
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| d.mount.display().to_string());
+        format!("{base} ({})", d.mount.display())
+    };
+    let hint = if d.fstype.is_empty() {
+        d.dev.clone()
+    } else {
+        format!("{} \u{00b7} {}", d.dev, d.fstype)
+    };
+    let icon = if d.removable {
+        crate::icons::icon_any(&["drive-removable-media", "drive-harddisk", "drive"], 16)
+    } else {
+        crate::icons::icon_any(&["drive-harddisk", "drive"], 16)
+    };
+    button(
+        Row::new()
+            .spacing(6.0)
+            .align_y(iced::Alignment::Center)
+            .push(icon)
+            .push(
+                text(label)
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(5)),
+            )
+            .push(
+                text(hint)
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(6))
+                    .color(palette::color(palette::GRAY_TEXT)),
+            ),
+    )
+    .on_press(Message::OpenPath(d.mount.clone()))
+    .width(Length::Fill)
+    .padding(pad(2.0, 6.0, 2.0, 6.0))
+    .style(row_style(false))
+    .into()
+}
+
+/// The This PC pane: the known user folders over the real mounted drives (E8.4).
+fn this_pc() -> Element<'static, Message> {
+    let mut col = Column::new().spacing(0.0);
+
+    col = col.push(section_header("Folders"));
+    let folders: Vec<PathBuf> = [
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "Music",
+        "Pictures",
+        "Videos",
+    ]
+    .into_iter()
+    .filter_map(user_dir)
+    .collect();
+    if folders.is_empty() {
+        col = col.push(
+            container(text("No user folders found.").size(metrics::UI_PX))
+                .padding(pad(2.0, 6.0, 2.0, 6.0)),
+        );
+    } else {
+        for p in &folders {
+            col = col.push(quick_row(p, true));
+        }
+    }
+
+    col = col.push(Space::with_height(Length::Fixed(10.0)));
+
+    col = col.push(section_header("Devices and drives"));
+    let ds = drives();
+    if ds.is_empty() {
+        // Fallback: the filesystem root is always navigable.
+        col = col.push(drive_row(&Drive {
+            mount: PathBuf::from("/"),
+            dev: "rootfs".to_string(),
+            fstype: String::new(),
+            removable: false,
+        }));
+    } else {
+        for d in &ds {
+            col = col.push(drive_row(d));
+        }
+    }
+
+    iced::widget::stack![
+        frame::sunken().face(palette::color(palette::WINDOW)),
+        container(scrollable(col).style(mde_ui::scrollbar))
+            .padding(pad(2.0, 8.0, 2.0, 8.0))
+            .width(Length::Fill)
+            .height(Length::Fill),
+    ]
+    .into()
+}
+
+/// A Win10 nav-pane root node (Quick access / This PC): icon + bold label, navy
+/// when it's the active pane.
+fn nav_node(
+    label: &'static str,
+    icons: &'static [&'static str],
+    active: bool,
+    msg: Message,
+) -> Element<'static, Message> {
+    button(
+        Row::new()
+            .spacing(6.0)
+            .align_y(iced::Alignment::Center)
+            .push(crate::icons::icon_any(icons, 16))
+            .push(
+                text(label)
+                    .size(metrics::UI_PX)
+                    .font(mde_ui::font::ui_bold()),
+            ),
+    )
+    .on_press(msg)
+    .width(Length::Fill)
+    .padding(pad(3.0, 6.0, 3.0, 6.0))
+    .style(row_style(active))
+    .into()
+}
+
+/// An indented child row under "Quick access": a frequent/pinned folder.
+fn nav_child(p: &Path) -> Element<'static, Message> {
+    let name = p
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| p.display().to_string());
+    button(
+        Row::new()
+            .spacing(4.0)
+            .align_y(iced::Alignment::Center)
+            .push(Space::with_width(Length::Fixed(14.0)))
+            .push(crate::icons::icon("folder", 16))
+            .push(text(name).size(metrics::UI_PX)),
+    )
+    .on_press(Message::OpenPath(p.to_path_buf()))
+    .width(Length::Fill)
+    .padding(pad(1.0, 6.0, 1.0, 6.0))
+    .style(row_style(false))
+    .into()
+}
+
+/// The Win10 Explorer navigation pane: a Quick access node (with its frequent
+/// folders as children) and a This PC node, each switching the active pane.
+fn nav_pane(state: &Files) -> Element<'_, Message> {
+    let mut col = Column::new().spacing(0.0);
+    col = col.push(nav_node(
+        "Quick access",
+        &["bookmarks", "user-bookmarks", "folder"],
+        state.pane == Pane::QuickAccess,
+        Message::ShowQuick,
+    ));
+    for p in frequent_folders(&state.pins) {
+        col = col.push(nav_child(&p));
+    }
+    col = col.push(Space::with_height(Length::Fixed(6.0)));
+    col = col.push(nav_node(
+        "This PC",
+        &["computer", "drive-harddisk"],
+        state.pane == Pane::ThisPc,
+        Message::ShowThisPc,
+    ));
+    iced::widget::stack![
+        frame::sunken().face(palette::color(palette::WINDOW)),
+        container(scrollable(col).style(mde_ui::scrollbar)).padding(2.0),
+    ]
+    .into()
+}
+
 /// The folder body: the left pane (web-view info band or folder tree) beside the
 /// details list. Every non-QuickAccess view uses this.
 fn folder_body(state: &Files) -> Element<'_, Message> {
@@ -1319,10 +1552,29 @@ fn folder_body(state: &Files) -> Element<'_, Message> {
 }
 
 fn view(state: &Files) -> Element<'_, Message> {
-    // The main area: the Win10 Quick access landing (no path, Win10 era),
-    // otherwise the folder body (left pane + details list). E8.2.
-    let main: Element<'_, Message> = if palette::is_windows10() && state.pane == Pane::QuickAccess {
-        quick_access(state)
+    // Win10 era: a left navigation pane (Quick access / This PC) beside the active
+    // pane's content — Quick access landing, This PC, or the folder list (E8.4).
+    // Other eras keep the Win2000 folder body (web-view/tree + details list).
+    let main: Element<'_, Message> = if palette::is_windows10() {
+        let pane_content: Element<'_, Message> = match state.pane {
+            Pane::QuickAccess => quick_access(state),
+            Pane::ThisPc => this_pc(),
+            Pane::Folder => list(state),
+        };
+        Row::new()
+            .push(
+                container(nav_pane(state))
+                    .width(Length::Fixed(180.0))
+                    .height(Length::Fill)
+                    .padding(pad(2.0, 1.0, 2.0, 2.0)),
+            )
+            .push(
+                container(pane_content)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .padding(2.0),
+            )
+            .into()
     } else {
         folder_body(state)
     };
