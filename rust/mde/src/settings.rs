@@ -17,7 +17,9 @@
 use std::collections::HashMap;
 use std::process::{Command, ExitCode};
 
-use iced::widget::{button, column, container, mouse_area, scrollable, text, Column, Row, Space};
+use iced::widget::{
+    button, column, container, mouse_area, scrollable, text, text_input, Column, Row, Space,
+};
 use iced::{Background, Border, Color, Element, Length, Padding, Task};
 
 use mde_ui::{metrics, palette};
@@ -283,6 +285,8 @@ struct Settings {
     page: usize, // selected rail page within the current category
     dark: bool,
     accent: u8,
+    /// Home-screen search query (E6.6): filters the flat (category, page) list.
+    search: String,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -296,6 +300,8 @@ enum Message {
     Back,
     SetDark(bool),
     SetAccent(u8),
+    Search(String),
+    Jump(usize, usize), // (category, page) from a search result
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -303,10 +309,17 @@ pub fn run(args: &[String]) -> ExitCode {
         return list();
     }
     // Optional deep-link: `mde settings personalization` opens straight to that
-    // category (a Win10 `ms-settings:`-style entry, and the way to script a
-    // drill-in capture).
-    let initial = args.first().and_then(|a| category_index(a));
-    match gui(initial) {
+    // category; an arg that isn't a category (`mde settings display`) pre-fills
+    // the Home search box instead (a Win10 `ms-settings:`-style entry, and the
+    // way to script a drill-in / search capture).
+    let arg = args.join(" ").trim().to_string();
+    let initial_cat = category_index(&arg);
+    let initial_search = if initial_cat.is_none() {
+        arg
+    } else {
+        String::new()
+    };
+    match gui(initial_cat, initial_search) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("mde settings: {e}");
@@ -340,7 +353,7 @@ fn list() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn gui(initial: Option<usize>) -> iced::Result {
+fn gui(initial: Option<usize>, initial_search: String) -> iced::Result {
     iced::application(|_: &Settings| "Settings - mde".to_string(), update, view)
         .theme(|_| iced::Theme::Light)
         .window_size(iced::Size::new(940.0, 640.0))
@@ -356,6 +369,7 @@ fn gui(initial: Option<usize>) -> iced::Result {
                 page: 0,
                 dark: st.theme_mode != "light",
                 accent: accent_index(&st.icon_color),
+                search: initial_search,
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -402,6 +416,12 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         Message::Back => {
             state.view = View::Home;
             state.page = 0;
+        }
+        Message::Search(q) => state.search = q,
+        Message::Jump(c, p) => {
+            state.view = View::Category(c);
+            state.page = p;
+            cache_install(state);
         }
         Message::Open => open_current(state),
         Message::SetDark(d) => {
@@ -500,7 +520,7 @@ fn bg(_t: &iced::Theme) -> container::Style {
 
 fn view(state: &Settings) -> Element<'_, Message> {
     let body = match state.view {
-        View::Home => home(),
+        View::Home => home(state),
         View::Category(c) => category(state, c),
     };
     container(body)
@@ -511,25 +531,84 @@ fn view(state: &Settings) -> Element<'_, Message> {
         .into()
 }
 
-fn home() -> Element<'static, Message> {
+fn home(state: &Settings) -> Element<'_, Message> {
     let title = text("Settings")
         .size(metrics::INFO_TITLE_PX)
         .color(palette::color(palette::WINDOW_TEXT));
-    let mut grid = Column::new().spacing(12.0);
-    let mut r = Row::new().spacing(12.0);
-    for (i, cat) in CATEGORIES.iter().enumerate() {
-        r = r.push(home_tile(i, cat));
-        if (i + 1) % COLS == 0 {
-            grid = grid.push(r);
-            r = Row::new().spacing(12.0);
+    let find = text_input("Find a setting", &state.search)
+        .on_input(Message::Search)
+        .padding(8.0)
+        .size(metrics::UI_PX)
+        .width(Length::Fixed(360.0));
+
+    // A non-empty query filters the flat (category, page) list; otherwise the
+    // category tile grid shows.
+    let q = state.search.trim().to_lowercase();
+    let content: Element<Message> = if q.is_empty() {
+        let mut grid = Column::new().spacing(12.0);
+        let mut r = Row::new().spacing(12.0);
+        for (i, cat) in CATEGORIES.iter().enumerate() {
+            r = r.push(home_tile(i, cat));
+            if (i + 1) % COLS == 0 {
+                grid = grid.push(r);
+                r = Row::new().spacing(12.0);
+            }
         }
-    }
-    grid = grid.push(r);
+        grid = grid.push(r);
+        scrollable(grid).style(mde_ui::scrollbar).into()
+    } else {
+        search_results(&q)
+    };
+
     Column::new()
         .spacing(16.0)
         .push(title)
-        .push(scrollable(grid).style(mde_ui::scrollbar))
+        .push(find)
+        .push(content)
         .into()
+}
+
+/// In-memory filter of every (category, page) by title; clicking a row jumps to
+/// that page. No indexer — just a flat scan of the static model (E6.6).
+fn search_results(q: &str) -> Element<'static, Message> {
+    let mut col = Column::new().spacing(1.0);
+    let mut any = false;
+    for (ci, cat) in CATEGORIES.iter().enumerate() {
+        for (pi, p) in cat.pages.iter().enumerate() {
+            let hay = format!("{} {}", cat.title, p.title).to_lowercase();
+            if !hay.contains(q) {
+                continue;
+            }
+            any = true;
+            // ASCII separator: the bundled UI font lacks ▸ (§2.7 never tofu);
+            // `--list` keeps ▸ since it prints to a terminal font.
+            let label = format!("{}  >  {}", cat.title, p.title);
+            col = col.push(
+                button(text(label).size(metrics::UI_PX))
+                    .on_press(Message::Jump(ci, pi))
+                    .width(Length::Fill)
+                    .padding(Padding::from([6.0, 10.0]))
+                    .style(|_t, status| {
+                        let hot = matches!(status, button::Status::Hovered);
+                        button::Style {
+                            background: hot
+                                .then(|| Background::Color(palette::color(palette::MENU))),
+                            text_color: palette::color(palette::MENU_TEXT),
+                            border: Border::default(),
+                            ..button::Style::default()
+                        }
+                    }),
+            );
+        }
+    }
+    if !any {
+        col = col.push(
+            text("No matching settings")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+    }
+    scrollable(col).style(mde_ui::scrollbar).into()
 }
 
 fn home_tile(i: usize, cat: &'static Category) -> Element<'static, Message> {
