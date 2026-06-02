@@ -341,7 +341,7 @@ fn fixed_desktop_band<'a>(n: u32) -> Element<'a, Message> {
     }
     // Plain ASCII: the bundled UI font lacks the arrow glyphs, and §2.7 says
     // never render tofu.
-    let hint = text("Ctrl+Win+Left / Right to switch")
+    let hint = text("Ctrl+Super+Left / Right to switch")
         .size(metrics::UI_PX)
         .color(palette::color(palette::GRAY_TEXT));
     let col = Column::new()

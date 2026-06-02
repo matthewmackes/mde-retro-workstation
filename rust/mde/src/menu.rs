@@ -588,7 +588,7 @@ fn run_act(act: &Act) {
         Act::Mde(sub) => start_common::mde_self(sub),
         Act::Run => start_common::mde_self("run"),
         Act::Help => start_common::launch_cmd(
-            "echo 'MDE-Retro — Start=Win  Run=Win+R  Close=Alt+F4  Switch=Alt+Tab  My Computer=Win+E'; read -p 'Press Enter to close '",
+            "echo 'MDE-Retro — Start=Super  Run=Super+R  Close=Alt+F4  Switch=Alt+Tab  My Computer=Super+E'; read -p 'Press Enter to close '",
             true,
         ),
         Act::LogOff => start_common::mde_self("logoff"),
