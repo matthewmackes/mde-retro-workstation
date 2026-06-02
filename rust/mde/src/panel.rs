@@ -1,8 +1,9 @@
-//! Taskbar — a wlr-layer-shell bar anchored to the bottom edge.
+//! Taskbar — a wlr-layer-shell bar, anchored per era: Carbon (the default) docks
+//! to the top edge (32px), Win2000 to the bottom (28px), BeOS to the left (§7).
 //!
-//! A raised Win2000 panel: flag Start button, a window-button taskbar fed by sway
-//! IPC (the focused window's button shows pressed), a flexible spacer, and a
-//! sunken clock well. Polls sway + the clock once a second.
+//! Start button, a window-button taskbar fed by wlr-foreign-toplevel (the focused
+//! window's button shows pressed), a flexible spacer, a tray, and a clock well.
+//! Polls the foreign-toplevel list + the clock once a second.
 
 use std::process::{Child, Command, ExitCode};
 use std::time::Duration;

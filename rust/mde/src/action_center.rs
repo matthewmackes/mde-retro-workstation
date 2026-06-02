@@ -5,8 +5,9 @@
 //!
 //!   mde action-center   open the slide-in pane (Win10 era; WINKEY+A)
 //!
-//! The quick-action tile grid (E3.5/6) and inline notification actions (which need
-//! a daemon action bridge) layer on in later stories.
+//! The quick-action tile grid (E3.5) is live here; some tile-action backends
+//! (E3.6) and inline notification actions (which need a daemon action bridge)
+//! layer on in later stories.
 
 use std::process::{exit, ExitCode};
 use std::time::{Duration, SystemTime};

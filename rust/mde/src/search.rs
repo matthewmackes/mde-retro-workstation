@@ -308,9 +308,10 @@ fn run_docs(q: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Win10 Settings pages mapped to mde's existing surfaces (the modern Settings
-/// app is a later epic; until then these resolve to Control Panel / Display /
-/// System Properties — the D4-era fallback the worklist calls for).
+/// Win10 Settings search hits, mapped to mde surfaces. The modern Settings app
+/// (`mde settings`) now ships; these specific hits still deep-link to the
+/// matching legacy property sheets (System Properties / Display / Control
+/// Panel), the most direct target for each query.
 fn settings_pages() -> Vec<(&'static str, Action)> {
     let mde = std::env::current_exe()
         .ok()

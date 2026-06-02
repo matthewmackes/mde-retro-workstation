@@ -46,7 +46,7 @@ mod wlr;
 mod workspace;
 
 const USAGE: &str = "\
-mde — Windows 2000 desktop shell for Sway (MDE-Retro)
+mde — Carbon/Win2000 desktop shell for labwc (MDE-Retro)
 
 USAGE:
     mde <COMMAND> [ARGS...]

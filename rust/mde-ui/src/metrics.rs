@@ -7,10 +7,10 @@
 /// Title-bar height (SM_CYCAPTION), excluding the 3D frame.
 pub const TITLE_BAR_HEIGHT: u16 = 18;
 /// Sizing-frame thickness around a resizable window (SM_CXSIZEFRAME).
-/// Sway-owned today: sway draws the window frame, so this is transcribed for
+/// labwc-owned today: labwc draws the window frame, so this is transcribed for
 /// completeness, not applied by mde (see ACCURACY.md §0).
 pub const SIZE_FRAME: u16 = 3;
-/// Thin 3D frame thickness around a fixed/dialog window. Sway-owned (as above).
+/// Thin 3D frame thickness around a fixed/dialog window. labwc-owned (as above).
 pub const FIXED_FRAME: u16 = 1;
 /// Each bevel is two 1px lines.
 pub const BEVEL_LINE: u16 = 1;

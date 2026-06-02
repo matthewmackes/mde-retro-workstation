@@ -9,7 +9,7 @@
 //!
 //! This is a *per-user* operation: the orchestrator deploys into the caller's
 //! `~/.local/share`, and the Win2k step reads the cached tarball + generates
-//! its aliases under `~/.config/sway` — so the config tree must be deployed
+//! its aliases under `~/.config/labwc` — so the config tree must be deployed
 //! first (the system installer does that, then triggers this per user).
 //!
 //! Usage:

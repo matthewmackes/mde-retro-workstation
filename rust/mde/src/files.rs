@@ -1,5 +1,5 @@
-//! File manager — an Explorer-style window (stock iced xdg toplevel; sway draws
-//! the navy title bar via our window theming).
+//! File manager — an Explorer-style window (stock iced xdg toplevel; labwc draws
+//! the title bar + frame via its themerc, per our window theming).
 //!
 //! Client area, top to bottom: menubar (File/Edit/View/Favorites/Tools/Help),
 //! a raised toolbar (Back/Forward/Up/Refresh/Home), an editable Address bar,

@@ -1,11 +1,12 @@
 //! Display Properties — the Windows 2000 Display control panel, wired to
-//! Wayland/sway. A tabbed property sheet (Background · Screen Saver · Appearance
+//! Wayland/labwc. A tabbed property sheet (Background · Screen Saver · Appearance
 //! · Effects · Settings) over the [`crate::outputs`] data layer.
 //!
 //! Changes preview live through `wlr-randr`/`swaybg`; an Apply (or OK) raises the classic
 //! 15-second "Keep these settings?" prompt that auto-reverts if you don't
 //! confirm, so a bad resolution can't lock you out. Confirmed settings persist
-//! to a sway `config.d` fragment that sway replays at login.
+//! to a generated `~/.config/mde/display.sh` that the labwc autostart replays at
+//! login.
 //!
 //!   mde display            opens the GUI
 //!   mde display --outputs  prints the detected outputs (headless)
