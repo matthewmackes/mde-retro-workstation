@@ -85,5 +85,45 @@ phase has a code landing) despite `LABWC-MIGRATION.md` saying "PLAN ONLY".
 Compositor boundary clean (the only "Active Window" caption is the Display-Props
 mock preview); themerc/openbox hex are compositor config (labwc owns title bars);
 the installer translucent-black scrim and the menu banner SVG art are documented
-§2.1 carve-outs; `__wlr-list` correctly has no symlink; asset staging matches the
+§2.1 carve-outs (the menu banner SVG was **reclassified as a real §2.1 leak in the
+second sweep below** — it renders in-process, not via an external tool — and is now
+fixed); `__wlr-list` correctly has no symlink; asset staging matches the
 asset list exactly; `Workgroup="WORKGROUP"` is authentic read-only display.
+
+---
+
+# Second sweep — 2026-06-02 (`/audit` as a workflow, adversarially verified)
+
+Re-run after the 2.0 "Windows 10 era" work landed, this time as a multi-agent
+workflow: 6 dimension-finders → per-finding adversarial verifiers (default
+`real=false`, with a safeguards list to kill false positives). **29 raw findings →
+14 confirmed.** No new stubs, no mockups, compositor boundary still clean. The
+residue is (a) one §2.1 hex leak the *first* sweep wrongly waved through as a
+"carve-out", (b) two genuinely unreachable surfaces, and (c) a fresh layer of
+sway→labwc / Win2000→Carbon drift in the *module* docs the first pass (top-level
+prose only) never reached. **All 14 resolved in this commit set.**
+
+| # | Location | Cat | Verdict | Resolution |
+|---|---|---|---|---|
+| 1 | `mde-ui/palette.rs:53` `URGENT` | unreachable | REMOVE | zero refs; `SPEC-windows10` promised a critical-toast tint never wired → const removed, SPEC corrected, tint → worklist `E3-urgent-tint` |
+| 2 | `mde/menu.rs:795` Start-banner SVG | hex (§2.1) | FINISH | 5 raw hex (`#3a6ad0/#0a1a40/#000000/#ffffff/#6f9fe0`) → `palette::LOGO_*` roles, emitted via new `palette::hex_fixed` (fixed brand art, no remap); pinned in `checklist.rs`. Byte-identical render. |
+| 3 | `mde/popup.rs:132` `items_for("desktop")` | unreachable | REMOVE | no caller — labwc serves the desktop right-click from its own static `menu.xml`; arm removed, era-aware desktop menu → worklist `E7.10a` |
+| 4 | `mde/action_center.rs:8` | docdrift | FINISH | tile grid (E3.5) shipped here; "layers on later" caveat narrowed to E3.6 backends + inline actions |
+| 5 | `mde/search.rs:311` | docdrift | FINISH | "Settings is a later epic" false — `mde settings` ships; comment corrected |
+| 6 | `mde/main.rs:49` `USAGE` | docdrift | FINISH | "Windows 2000 … for Sway" → "Carbon/Win2000 … for labwc" (user-visible `--help`) |
+| 7 | `mde/panel.rs:1,3` | docdrift | FINISH | "anchored to the bottom edge" / "fed by sway IPC" → per-era anchor (Carbon top default) + wlr-foreign-toplevel |
+| 8 | `mde/files.rs:1` | docdrift | FINISH | "sway draws the navy title bar" → labwc draws title bar + frame via themerc |
+| 9 | `mde-ui/palette.rs:14` | docdrift | FINISH | ACTIVE_TITLE comment: sway/`client.focused` → labwc/`window.active.title.bg` |
+| 10 | `mde-ui/metrics.rs:10` | docdrift | FINISH | SIZE_FRAME/FIXED_FRAME "Sway-owned" → "labwc-owned" |
+| 11 | `mde/display.rs:2` | docdrift | FINISH | "wired to Wayland/sway" + "sway `config.d` fragment" → labwc + generated `~/.config/mde/display.sh` |
+| 12 | `mde/install.rs:12` | docdrift | FINISH | aliases "under `~/.config/sway`" → `~/.config/labwc` |
+
+(The raw set counted the banner hex leak twice — two finders, two rows — and split
+the panel doc into `:1` and `:3`; collapsed here. 14 confirmed = these 12 distinct
+fixes, with the two banner rows merged into #2.)
+
+**Carried forward (tracked, not in this commit):** `assets/install-assets.sh` still
+hardcodes `SWAY_SCRIPTS=$HOME/.config/sway/scripts` + "swaymsg reload" — a shell
+script, not Rust; lifted to worklist `install-assets-sway-drift` rather than edited
+blind (the root `install.sh` is the OLD sway installer per §7, so the script's live
+status needs confirming first).
