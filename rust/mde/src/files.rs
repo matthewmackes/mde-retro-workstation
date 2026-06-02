@@ -95,6 +95,12 @@ struct Files {
     net_browsed_host: String,
     net_shares: Vec<String>,
     net_busy: bool,
+    /// Async-op generation (E8.8b): bumped on every navigation, pane switch, and
+    /// new mount/browse dispatch. Each off-thread task carries the generation it
+    /// was dispatched under; a `MountDone`/`NetBrowsed` only applies if its
+    /// generation is still current, so a late result can't navigate the user away
+    /// or clobber a newer status after they've moved on.
+    op_gen: u64,
 }
 
 /// The menubar titles (indices used by `open_menu` / ToggleMenu).
@@ -128,7 +134,8 @@ enum Message {
     /// share's `smb://host/share` via the shared off-thread mount flow.
     NetHostChanged(String),
     NetBrowse,
-    NetBrowsed(Result<Vec<String>, String>),
+    /// Browse result + the op generation it was dispatched under (E8.8b).
+    NetBrowsed(Result<Vec<String>, String>, u64),
     OpenShare(String),
     /// Show the Cloud devices pane (the paired-device list).
     ShowCloud,
@@ -143,6 +150,8 @@ enum Message {
     MountDone {
         result: Result<PathBuf, String>,
         cloud_id: Option<String>,
+        /// The op generation this mount was dispatched under (E8.8b).
+        gen: u64,
     },
     /// Right-click a Cloud device: open its offline menu (E8.10).
     CloudContext(String),
@@ -237,6 +246,7 @@ fn launch(start: PathBuf, pane: Pane, pins: Vec<PathBuf>) -> iced::Result {
                 net_browsed_host: String::new(),
                 net_shares: Vec::new(),
                 net_busy: false,
+                op_gen: 0,
             };
             f.load();
             (f, Task::none())
@@ -310,6 +320,7 @@ impl Files {
     }
 
     fn navigate(&mut self, path: PathBuf) {
+        self.bump_gen(); // navigating away invalidates any in-flight mount/browse
         self.pane = Pane::Folder;
         self.search.clear();
         self.cwd = path.clone();
@@ -317,6 +328,12 @@ impl Files {
         self.history.truncate(self.hpos + 1);
         self.history.push(path);
         self.hpos = self.history.len() - 1;
+    }
+
+    /// Bump the async-op generation (E8.8b): invalidates any mount/browse that was
+    /// dispatched under the previous generation, so its late completion is ignored.
+    fn bump_gen(&mut self) {
+        self.op_gen = self.op_gen.wrapping_add(1);
     }
 
     /// Open entry `i`: enter a folder, or hand a file to `xdg-open`.
@@ -401,6 +418,7 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
         }
         Message::Back => {
             if state.hpos > 0 {
+                state.bump_gen();
                 state.hpos -= 1;
                 state.cwd = state.history[state.hpos].clone();
                 state.pane = Pane::Folder;
@@ -410,6 +428,7 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
         }
         Message::Forward => {
             if state.hpos + 1 < state.history.len() {
+                state.bump_gen();
                 state.hpos += 1;
                 state.cwd = state.history[state.hpos].clone();
                 state.pane = Pane::Folder;
@@ -435,7 +454,8 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
                 // off-thread (E8.8a — an unreachable peer can block ~15s) and, on
                 // MountDone, navigate into the path it prints or surface its error.
                 state.error = Some(format!("Connecting to {addr}…"));
-                return mount_task(addr, None);
+                state.bump_gen();
+                return mount_task(addr, None, state.op_gen);
             } else {
                 let p = PathBuf::from(&addr);
                 if p.is_dir() {
@@ -509,9 +529,19 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             st.explorer_pins = state.pins.clone();
             let _ = crate::state::save(&st);
         }
-        Message::ShowQuick => state.pane = Pane::QuickAccess,
-        Message::ShowThisPc => state.pane = Pane::ThisPc,
-        Message::ShowNetwork => state.pane = Pane::Network,
+        // Pane switches count as "moved on" — invalidate any in-flight op (E8.8b).
+        Message::ShowQuick => {
+            state.bump_gen();
+            state.pane = Pane::QuickAccess;
+        }
+        Message::ShowThisPc => {
+            state.bump_gen();
+            state.pane = Pane::ThisPc;
+        }
+        Message::ShowNetwork => {
+            state.bump_gen();
+            state.pane = Pane::Network;
+        }
         Message::NetHostChanged(s) => state.net_host = s,
         Message::NetBrowse => {
             let host = state.net_host.trim().to_string();
@@ -524,32 +554,38 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
                 // (the live `net_host` would mislabel + mis-mount, §audit FIX).
                 state.net_browsed_host = host.clone();
                 state.error = Some(format!("Browsing \\\\{host}…"));
-                return browse_task(host);
+                state.bump_gen();
+                return browse_task(host, state.op_gen);
             }
         }
-        Message::NetBrowsed(result) => {
-            state.net_busy = false;
-            match result {
-                Ok(shares) => {
-                    state.error = if shares.is_empty() {
-                        Some(format!("No shares found on '{}'.", state.net_browsed_host))
-                    } else {
-                        None
-                    };
-                    state.net_shares = shares;
-                }
-                Err(e) => {
-                    state.net_shares.clear();
-                    state.error = Some(e);
+        Message::NetBrowsed(result, gen) => {
+            state.net_busy = false; // the single in-flight browse finished
+                                    // Apply only if no newer navigation / dispatch happened since (E8.8b).
+            if gen == state.op_gen {
+                match result {
+                    Ok(shares) => {
+                        state.error = if shares.is_empty() {
+                            Some(format!("No shares found on '{}'.", state.net_browsed_host))
+                        } else {
+                            None
+                        };
+                        state.net_shares = shares;
+                    }
+                    Err(e) => {
+                        state.net_shares.clear();
+                        state.error = Some(e);
+                    }
                 }
             }
         }
         Message::OpenShare(uri) => {
             // A discovered share carries its full smb:// URI; mount it off-thread.
             state.error = Some(format!("Connecting to {uri}…"));
-            return mount_task(uri, None);
+            state.bump_gen();
+            return mount_task(uri, None, state.op_gen);
         }
         Message::ShowCloud => {
+            state.bump_gen();
             state.cloud_device = None;
             state.pane = Pane::CloudDevice;
         }
@@ -560,7 +596,8 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
                 state.cloud_device = Some(id.clone());
                 state.pane = Pane::CloudDevice;
                 state.error = Some(format!("Connecting to '{}'…", d.name));
-                return mount_task(format!("sftp://{}", d.address), Some(id));
+                state.bump_gen();
+                return mount_task(format!("sftp://{}", d.address), Some(id), state.op_gen);
             }
             Some(d) => {
                 state.cloud_device = Some(id);
@@ -569,19 +606,30 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             }
             None => {}
         },
-        Message::MountDone { result, cloud_id } => match result {
-            Ok(path) => state.navigate(path),
-            Err(e) => {
-                // Surface the failure; for a cloud mount, land back on the Cloud
-                // pane with the device reselected (the in-flight handler set those,
-                // but an address-bar connect that errored leaves the pane as-is).
-                if let Some(id) = cloud_id {
-                    state.cloud_device = Some(id);
-                    state.pane = Pane::CloudDevice;
+        Message::MountDone {
+            result,
+            cloud_id,
+            gen,
+        } => {
+            // Drop a stale completion: if the user navigated, switched panes, or
+            // started another mount since this one was dispatched, neither navigate
+            // them away nor clobber their newer status (E8.8b).
+            if gen == state.op_gen {
+                match result {
+                    Ok(path) => state.navigate(path),
+                    Err(e) => {
+                        // Surface the failure; for a cloud mount, land back on the
+                        // Cloud pane with the device reselected (the in-flight
+                        // handler set those; an address-bar connect leaves the pane).
+                        if let Some(id) = cloud_id {
+                            state.cloud_device = Some(id);
+                            state.pane = Pane::CloudDevice;
+                        }
+                        state.error = Some(e);
+                    }
                 }
-                state.error = Some(e);
             }
-        },
+        }
         Message::CloudContext(id) => {
             state.cloud_ctx = Some(id);
             state.ctx = None;
@@ -1887,8 +1935,9 @@ fn network(state: &Files) -> Element<'_, Message> {
 /// [`Message::MountDone`]. `mde mount` shells out to `gio`/`sshfs` with bounded
 /// connect timeouts, so an unreachable peer can take ~15s — running it on tokio's
 /// blocking pool keeps the file manager responsive while it connects. `cloud_id`
-/// rides through so MountDone knows whether this was a paired-device mount.
-fn mount_task(uri: String, cloud_id: Option<String>) -> Task<Message> {
+/// rides through so MountDone knows whether this was a paired-device mount, and
+/// `gen` rides through so a stale completion can be ignored (E8.8b).
+fn mount_task(uri: String, cloud_id: Option<String>, gen: u64) -> Task<Message> {
     Task::perform(
         async move {
             let result = tokio::task::spawn_blocking(move || mount_uri(&uri))
@@ -1896,7 +1945,11 @@ fn mount_task(uri: String, cloud_id: Option<String>) -> Task<Message> {
                 .unwrap_or_else(|e| Err(format!("mount task failed: {e}")));
             (result, cloud_id)
         },
-        |(result, cloud_id)| Message::MountDone { result, cloud_id },
+        move |(result, cloud_id)| Message::MountDone {
+            result,
+            cloud_id,
+            gen,
+        },
     )
 }
 
@@ -1904,14 +1957,14 @@ fn mount_task(uri: String, cloud_id: Option<String>) -> Task<Message> {
 /// on tokio's blocking pool and delivers the parsed Disk shares (or a clean
 /// error) as [`Message::NetBrowsed`], so a slow/unreachable server never freezes
 /// the file manager.
-fn browse_task(host: String) -> Task<Message> {
+fn browse_task(host: String, gen: u64) -> Task<Message> {
     Task::perform(
         async move {
             tokio::task::spawn_blocking(move || smb_shares(&host))
                 .await
                 .unwrap_or_else(|e| Err(format!("browse task failed: {e}")))
         },
-        Message::NetBrowsed,
+        move |result| Message::NetBrowsed(result, gen),
     )
 }
 
