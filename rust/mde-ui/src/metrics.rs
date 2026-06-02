@@ -54,3 +54,22 @@ pub const IDENTIFY_PX: f32 = 48.0;
 pub const TITLE_FONT_BOLD: bool = true;
 /// The Windows 10 Task View window-tile size (px) — a square-ish window card.
 pub const TASKVIEW_TILE: f32 = 200.0;
+
+// --- Nerd-glyph / badge sizes (§2.3) ----------------------------------------
+// The shell's chrome glyphs are sized larger than body text. Named here so each
+// is a single source like `UI_PX`, not a literal scattered across panel.rs /
+// action_center.rs. Pinned in `checklist.rs::ui_size_is_one_source_of_truth`.
+
+/// Standard taskbar / tray / notification-area Nerd glyph (the ≡ Start switcher,
+/// SNI tray glyphs, the Win10 search magnifier).
+pub const PANEL_GLYPH_PX: f32 = 15.0;
+/// Slightly larger Nerd glyph for the Win10 bar's named buttons (Task View,
+/// Action Center) and the Action Center's inline affordance glyphs (brightness
+/// sun, "All settings" gear).
+pub const BUTTON_GLYPH_PX: f32 = 16.0;
+/// The prominent Win10 Start-button logo glyph (larger than the other bar icons).
+pub const START_GLYPH_PX: f32 = 18.0;
+/// The large glyph centered in an Action Center quick-action square tile.
+pub const TILE_GLYPH_PX: f32 = 20.0;
+/// The tiny unread-count chip drawn on the Win10 Action Center button.
+pub const BADGE_PX: f32 = 9.0;

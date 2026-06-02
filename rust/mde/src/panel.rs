@@ -533,7 +533,7 @@ fn view_carbon(state: &Panel) -> Element<'_, Message> {
                 .align_y(iced::Alignment::Center)
                 .push(
                     text("\u{f0c9}")
-                        .size(15.0)
+                        .size(metrics::PANEL_GLYPH_PX)
                         .font(mde_ui::font::NERD)
                         .color(text_c),
                 ) // fa-bars (≡)
@@ -703,7 +703,7 @@ fn win10_start_tile(state: &Panel) -> Element<'_, Message> {
     mouse_area(
         container(
             text("\u{f17a}")
-                .size(18.0)
+                .size(metrics::START_GLYPH_PX)
                 .font(mde_ui::font::NERD)
                 .color(c),
         )
@@ -722,7 +722,7 @@ fn win10_taskview_button() -> Element<'static, Message> {
     mouse_area(
         container(
             text("\u{f24d}") // nf-fa-clone (overlapping squares)
-                .size(16.0)
+                .size(metrics::BUTTON_GLYPH_PX)
                 .font(mde_ui::font::NERD)
                 .color(palette::color(palette::WINDOW_TEXT)),
         )
@@ -738,7 +738,7 @@ fn win10_taskview_button() -> Element<'static, Message> {
 /// wider "Search" pill ("box"), or nothing ("hidden"). All open `mde search`.
 fn win10_search_affordance(mode: &str) -> Option<Element<'static, Message>> {
     let glyph = text("\u{f002}") // nf-fa-search (magnifier)
-        .size(15.0)
+        .size(metrics::PANEL_GLYPH_PX)
         .font(mde_ui::font::NERD)
         .color(palette::color(palette::WINDOW_TEXT));
     let inner: Element<Message> = match mode {
@@ -785,13 +785,13 @@ fn win10_search_affordance(mode: &str) -> Option<Element<'static, Message>> {
 /// opens `mde action-center`, which stamps last_read so the chip clears.
 fn win10_ac_button(state: &Panel) -> Element<'_, Message> {
     let glyph = text("\u{f075}") // nf-fa-comment
-        .size(16.0)
+        .size(metrics::BUTTON_GLYPH_PX)
         .font(mde_ui::font::NERD)
         .color(palette::color(palette::WINDOW_TEXT));
     let inner: Element<Message> = if state.unread > 0 {
         let badge = container(
             text(state.unread.min(99).to_string())
-                .size(9.0)
+                .size(metrics::BADGE_PX)
                 .color(palette::color(palette::HIGHLIGHT_TEXT)),
         )
         .padding(Padding {
@@ -1336,7 +1336,7 @@ fn glyph_el(g: char) -> Element<'static, Message> {
     container(
         text(g.to_string())
             .font(mde_ui::font::NERD)
-            .size(15.0)
+            .size(metrics::PANEL_GLYPH_PX)
             .color(palette::color(palette::WINDOW_TEXT)),
     )
     .padding(Padding {
@@ -1353,7 +1353,7 @@ fn glyph_button(g: char, msg: Message) -> Element<'static, Message> {
     iced::widget::button(
         text(g.to_string())
             .font(mde_ui::font::NERD)
-            .size(15.0)
+            .size(metrics::PANEL_GLYPH_PX)
             .color(palette::color(palette::WINDOW_TEXT)),
     )
     .on_press(msg)

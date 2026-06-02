@@ -507,7 +507,7 @@ fn brightness_slider(state: &Center) -> Element<'_, Message> {
         .align_y(Vertical::Center)
         .push(
             text("\u{f185}") // fa-sun
-                .size(16.0)
+                .size(metrics::BUTTON_GLYPH_PX)
                 .font(mde_ui::font::NERD)
                 .color(palette::color(palette::WINDOW_TEXT)),
         )
@@ -550,7 +550,7 @@ fn all_settings_link() -> Element<'static, Message> {
                 .align_y(Vertical::Center)
                 .push(
                     text("\u{f013}") // fa-gear
-                        .size(16.0)
+                        .size(metrics::BUTTON_GLYPH_PX)
                         .font(mde_ui::font::NERD)
                         .color(palette::color(palette::WINDOW_TEXT)),
                 )
@@ -619,7 +619,12 @@ fn quick_tile(id: &str, on: bool) -> Element<'static, Message> {
         .spacing(4.0)
         .align_x(Horizontal::Center)
         .width(Length::Fill)
-        .push(text(glyph).size(20.0).font(mde_ui::font::NERD).color(fg))
+        .push(
+            text(glyph)
+                .size(metrics::TILE_GLYPH_PX)
+                .font(mde_ui::font::NERD)
+                .color(fg),
+        )
         .push(
             text(label)
                 .size(metrics::UI_PX)

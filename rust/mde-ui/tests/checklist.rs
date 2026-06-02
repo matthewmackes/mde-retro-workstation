@@ -220,4 +220,11 @@ fn ui_size_is_one_source_of_truth() {
     assert_eq!(metrics::WIZARD_STATUS_PX, 10.0);
     // The taskbar window-button minimum width (SM_*-style layout metric).
     assert_eq!(metrics::TASKBAR_BUTTON_MIN, 160);
+    // The Nerd-glyph / badge chrome sizes (§2.3): named so panel.rs and
+    // action_center.rs carry no scattered glyph `.size()` literals.
+    assert_eq!(metrics::PANEL_GLYPH_PX, 15.0);
+    assert_eq!(metrics::BUTTON_GLYPH_PX, 16.0);
+    assert_eq!(metrics::START_GLYPH_PX, 18.0);
+    assert_eq!(metrics::TILE_GLYPH_PX, 20.0);
+    assert_eq!(metrics::BADGE_PX, 9.0);
 }
