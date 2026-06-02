@@ -136,6 +136,8 @@ enum Kind {
     Start,
     /// The native Personalization ▸ Taskbar page (E7.9).
     Taskbar,
+    /// The native Update & Security ▸ Update page (E13.2): status card + Check.
+    Update,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -356,12 +358,12 @@ const CATEGORIES: &[Category] = &[
         icons: &["system-software-update", "security-high"],
         pages: &[
             Page {
-                title: "MackesDE Security",
-                kind: Kind::Tool("firewall-config"),
+                title: "MackesDE Update",
+                kind: Kind::Update,
             },
             Page {
-                title: "MackesDE Update",
-                kind: Kind::Cmd("sudo dnf upgrade", true),
+                title: "MackesDE Security",
+                kind: Kind::Tool("firewall-config"),
             },
             Page {
                 title: "Backup",
@@ -412,6 +414,11 @@ struct Settings {
     show_taskview: bool,
     /// Lock screen (greeter) picture selection (E7.6).
     lock_selected: Option<usize>,
+    /// Update page (E13.2): a `dnf check-update` is in flight.
+    update_checking: bool,
+    /// Update page (E13.2): the last check — None = not checked this session,
+    /// Ok(n) = n pending updates (0 = up to date), Err = the check failed.
+    update_status: Option<Result<usize, String>>,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -453,6 +460,9 @@ enum Message {
     LockBrowse,
     LockBrowsed(Option<String>),
     LockApply,
+    // Update page (E13.2).
+    CheckUpdates,
+    UpdatesChecked(Result<usize, String>),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -532,6 +542,7 @@ fn list() -> ExitCode {
                 Kind::Themes => "(native: Themes)".to_string(),
                 Kind::Start => "(native: Start)".to_string(),
                 Kind::Taskbar => "(native: Taskbar)".to_string(),
+                Kind::Update => "(native: Update)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -574,6 +585,8 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 search_mode: SearchMode::from_key(&st.win10_search_mode),
                 show_taskview: st.win10_show_taskview,
                 lock_selected: None,
+                update_checking: false,
+                update_status: None,
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -686,8 +699,55 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
                 set_lock_background(p);
             }
         }
+        Message::CheckUpdates => {
+            if !state.update_checking {
+                state.update_checking = true;
+                return check_updates_task();
+            }
+        }
+        Message::UpdatesChecked(r) => {
+            state.update_checking = false;
+            state.update_status = Some(r);
+        }
     }
     Task::none()
+}
+
+/// Run `dnf check-update` off the UI thread for the Update page (E13.2), reusing
+/// `packages::parse_check_update`. dnf exits 0 (up to date), 100 (updates), or
+/// other (error) — so "up to date" is distinct from "couldn't check".
+fn check_updates_task() -> Task<Message> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(|| {
+                let out = match std::process::Command::new("dnf")
+                    .args(["check-update", "-q"])
+                    .output()
+                {
+                    Ok(o) => o,
+                    Err(e) => return Err(format!("dnf is not available: {e}")),
+                };
+                match out.status.code() {
+                    Some(0) => Ok(0),
+                    Some(100) => Ok(
+                        crate::packages::parse_check_update(&String::from_utf8_lossy(&out.stdout))
+                            .len(),
+                    ),
+                    _ => {
+                        let err = String::from_utf8_lossy(&out.stderr);
+                        Err(if err.trim().is_empty() {
+                            "dnf check-update failed".to_string()
+                        } else {
+                            err.trim().to_string()
+                        })
+                    }
+                }
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("check task failed: {e}")))
+        },
+        Message::UpdatesChecked,
+    )
 }
 
 /// Capture the current background + accent + mode as a new saved theme bundle.
@@ -806,6 +866,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Themes
         | Kind::Start
         | Kind::Taskbar
+        | Kind::Update
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -1088,6 +1149,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Themes => themes_page(state),
         Kind::Start => start_page(state),
         Kind::Taskbar => taskbar_page(state),
+        Kind::Update => update_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -1124,6 +1186,71 @@ fn open_button<'a>(title: &str, present: bool) -> Element<'a, Message> {
                 .style(tile_style),
         )
         .into()
+}
+
+/// Update & Security ▸ Update (E13.2): a status card (glyph + headline + sub-line)
+/// over a "Check for updates" button that runs `dnf check-update` off-thread. The
+/// page is era-neutral — settings.rs renders in the active theme, so it shows the
+/// same in every era rather than gating to Win10 (best-choice §6, recorded). The
+/// pending-update list + Install lands in E13.3.
+fn update_page(state: &Settings) -> Element<'_, Message> {
+    let (glyph, headline, sub) = if state.update_checking {
+        (
+            "\u{f021}",
+            "Checking for updates…".to_string(),
+            String::new(),
+        ) // fa-sync
+    } else {
+        match &state.update_status {
+            None => (
+                "\u{f021}",
+                "Check for updates".to_string(),
+                "Updates are installed by MackesDE Update.".to_string(),
+            ),
+            Some(Ok(0)) => (
+                "\u{f00c}", // fa-check
+                "You're up to date".to_string(),
+                "Last checked: just now".to_string(),
+            ),
+            Some(Ok(n)) => (
+                "\u{f0f3}", // fa-bell
+                format!("{n} update{} available", if *n == 1 { "" } else { "s" }),
+                "Last checked: just now".to_string(),
+            ),
+            Some(Err(e)) => (
+                "\u{f071}", // fa-warning
+                "Couldn't check for updates".to_string(),
+                e.clone(),
+            ),
+        }
+    };
+    let mut lines = Column::new().spacing(2.0).push(
+        text(headline)
+            .size(metrics::INFO_TITLE_PX)
+            .color(palette::color(palette::WINDOW_TEXT)),
+    );
+    if !sub.is_empty() {
+        lines = lines.push(
+            text(sub)
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+    }
+    let card = Row::new()
+        .spacing(12.0)
+        .align_y(iced::alignment::Vertical::Center)
+        .push(
+            text(glyph)
+                .size(metrics::TILE_GLYPH_PX)
+                .font(mde_ui::font::NERD)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(lines);
+    let check = button(text("Check for updates").size(metrics::UI_PX))
+        .on_press_maybe((!state.update_checking).then_some(Message::CheckUpdates))
+        .padding(Padding::from([6.0, 16.0]))
+        .style(tile_style);
+    Column::new().spacing(16.0).push(card).push(check).into()
 }
 
 /// Personalization ▸ Colors (E6.4): the Light/Dark choice (re-skins live + persists).

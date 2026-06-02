@@ -43,9 +43,10 @@ struct Pkg {
     installed: bool,
 }
 
-/// One pending package update parsed from `dnf check-update` (B.2c).
+/// One pending package update parsed from `dnf check-update` (B.2c). `pub(crate)`
+/// so the Settings ▸ Update page (E13.2) reuses the same parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Update {
+pub(crate) struct Update {
     /// The dnf package id, e.g. `bash.x86_64`.
     package: String,
     /// The candidate new version, e.g. `5.2.21-1.fc40`.
@@ -306,7 +307,7 @@ fn upgrade_task() -> Task<Message> {
 /// a `name.arch  new-version  repo` row; the metadata-check line and blank lines
 /// have no dotted first column and are skipped, and the trailing "Obsoleting
 /// Packages" block (a different layout) ends the scan.
-fn parse_check_update(output: &str) -> Vec<Update> {
+pub(crate) fn parse_check_update(output: &str) -> Vec<Update> {
     let mut out = Vec::new();
     for line in output.lines() {
         if line.trim().eq_ignore_ascii_case("Obsoleting Packages") {
