@@ -31,6 +31,7 @@ mod outputs;
 mod panel;
 mod popup;
 mod search;
+mod settings;
 mod start_common;
 mod start_win10;
 mod state;
@@ -128,6 +129,7 @@ fn main() -> ExitCode {
         "toast" => action_center::run_toast(rest),
         "task-view" => task_view::run(rest),
         "search" => search::run(rest),
+        "settings" => settings::run(rest),
         // Per-era Start dispatcher for the labwc keybind: opens the right Start
         // for the active theme (the startup block above already set it).
         "start" => {
