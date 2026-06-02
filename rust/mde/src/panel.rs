@@ -96,6 +96,7 @@ enum Message {
     Launch(String),
     TrayActivate(usize),
     ActionCenter,
+    TaskView,
 }
 
 pub fn run(_args: &[String]) -> ExitCode {
@@ -264,6 +265,8 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
         // Open the Action Center pane; it stamps last_read, so the badge clears
         // on the next tick (E2.7).
         Message::ActionCenter => push_child(state, spawn_child(&["action-center"])),
+        // Open the Task View overlay (E2.3 — the same surface W-Tab binds).
+        Message::TaskView => push_child(state, spawn_child(&["task-view"])),
         // Toggle the Start menu: open it if closed, close it if already open.
         // Owning the child (instead of fire-and-forget spawning) is what stops
         // rapid clicks during the menu's start-up from stacking duplicate
@@ -619,13 +622,30 @@ fn win10_start_tile(state: &Panel) -> Element<'_, Message> {
                 .font(mde_ui::font::NERD)
                 .color(c),
         )
-        .width(Length::Fixed(WIN10_BAR_H))
         .height(Length::Fill)
-        .center_x(Length::Fill)
+        .center_x(Length::Fixed(WIN10_BAR_H))
         .center_y(Length::Fill),
     )
     .on_press(Message::Start)
     .on_right_press(Message::StartContext)
+    .into()
+}
+
+/// The Win10 Task View button (next to Start): overlapping-windows Nerd glyph;
+/// click opens the Task View overlay (E2.3, same surface as W-Tab).
+fn win10_taskview_button() -> Element<'static, Message> {
+    mouse_area(
+        container(
+            text("\u{f24d}") // nf-fa-clone (overlapping squares)
+                .size(16.0)
+                .font(mde_ui::font::NERD)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .height(Length::Fill)
+        .center_x(Length::Fixed(WIN10_BAR_H))
+        .center_y(Length::Fill),
+    )
+    .on_press(Message::TaskView)
     .into()
 }
 
@@ -687,7 +707,8 @@ fn view_win10(state: &Panel) -> Element<'_, Message> {
         .spacing(0.0)
         .height(Length::Fill)
         .align_y(iced::Alignment::Center)
-        .push(win10_start_tile(state));
+        .push(win10_start_tile(state))
+        .push(win10_taskview_button());
 
     for w in &state.windows {
         bar = bar.push(win10_task_button(w));
