@@ -72,6 +72,10 @@ struct Panel {
     /// Unread notification count for the Win10 Action Center badge (E2.7),
     /// recomputed from the notifyd mirror each tick; 0 ⇒ no chip.
     unread: usize,
+    /// Win10 taskbar config (E2.9): show the Task View button, and the search
+    /// affordance mode ("button"/"box"/"hidden").
+    show_taskview: bool,
+    search_mode: String,
 }
 
 /// Network connectivity, summarised for the tray glyph.
@@ -97,6 +101,7 @@ enum Message {
     TrayActivate(usize),
     ActionCenter,
     TaskView,
+    Search,
 }
 
 pub fn run(_args: &[String]) -> ExitCode {
@@ -191,12 +196,15 @@ fn launch() -> Result<(), iced_layershell::Error> {
         if palette::is_windows10() {
             crate::notifyd::start();
         }
+        let st = crate::state::load();
         let panel = Panel {
-            pinned: crate::state::load().pinned,
             tray: Some(crate::tray::start()),
             wm: wlr::start(),
             has_backlight: backlight_dir().is_some(),
             clock_offset: utc_offset_secs(),
+            show_taskview: st.win10_show_taskview,
+            search_mode: st.win10_search_mode.clone(),
+            pinned: st.pinned,
             ..Panel::default()
         };
         (panel, Task::done(Message::Tick))
@@ -267,6 +275,8 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
         Message::ActionCenter => push_child(state, spawn_child(&["action-center"])),
         // Open the Task View overlay (E2.3 — the same surface W-Tab binds).
         Message::TaskView => push_child(state, spawn_child(&["task-view"])),
+        // Open the Search flyout (E2.9 search affordance — same surface as W-s).
+        Message::Search => push_child(state, spawn_child(&["search"])),
         // Toggle the Start menu: open it if closed, close it if already open.
         // Owning the child (instead of fire-and-forget spawning) is what stops
         // rapid clicks during the menu's start-up from stacking duplicate
@@ -649,6 +659,52 @@ fn win10_taskview_button() -> Element<'static, Message> {
     .into()
 }
 
+/// The Win10 search affordance (E2.9), per `search_mode`: a magnifier button, a
+/// wider "Search" pill ("box"), or nothing ("hidden"). All open `mde search`.
+fn win10_search_affordance(mode: &str) -> Option<Element<'static, Message>> {
+    let glyph = text("\u{f002}") // nf-fa-search (magnifier)
+        .size(15.0)
+        .font(mde_ui::font::NERD)
+        .color(palette::color(palette::WINDOW_TEXT));
+    let inner: Element<Message> = match mode {
+        "hidden" => return None,
+        "box" => Row::new()
+            .spacing(6.0)
+            .align_y(iced::Alignment::Center)
+            .push(glyph)
+            .push(
+                text("Search")
+                    .size(metrics::UI_PX)
+                    .color(palette::color(palette::WINDOW_TEXT)),
+            )
+            .into(),
+        _ => glyph.into(), // "button"
+    };
+    let pad_x = if mode == "box" { 12.0 } else { 0.0 };
+    let w = if mode == "box" {
+        Length::Shrink
+    } else {
+        Length::Fixed(WIN10_BAR_H)
+    };
+    Some(
+        mouse_area(
+            container(inner)
+                .width(w)
+                .height(Length::Fill)
+                .center_x(w)
+                .center_y(Length::Fill)
+                .padding(Padding {
+                    top: 0.0,
+                    right: pad_x,
+                    bottom: 0.0,
+                    left: pad_x,
+                }),
+        )
+        .on_press(Message::Search)
+        .into(),
+    )
+}
+
 /// The Win10 Action Center button (far right): a speech-bubble Nerd glyph with a
 /// small accent unread-count chip when notifications are pending (E2.7). Click
 /// opens `mde action-center`, which stamps last_read so the chip clears.
@@ -707,8 +763,16 @@ fn view_win10(state: &Panel) -> Element<'_, Message> {
         .spacing(0.0)
         .height(Length::Fill)
         .align_y(iced::Alignment::Center)
-        .push(win10_start_tile(state))
-        .push(win10_taskview_button());
+        .push(win10_start_tile(state));
+    // Search affordance (E2.9): a magnifier button, a wider "Search" pill, or
+    // nothing — all open the search flyout.
+    if let Some(s) = win10_search_affordance(&state.search_mode) {
+        bar = bar.push(s);
+    }
+    // Task View button (E2.9: hideable).
+    if state.show_taskview {
+        bar = bar.push(win10_taskview_button());
+    }
 
     for w in &state.windows {
         bar = bar.push(win10_task_button(w));

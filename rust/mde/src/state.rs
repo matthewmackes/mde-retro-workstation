@@ -187,6 +187,13 @@ pub struct MenuState {
     /// `panel.rs` layer anchor (E7.9). ("left"/"right" need a vertical bar, E7.9a.)
     #[serde(default = "def_taskbar_location")]
     pub taskbar_location: String,
+    /// Win10 taskbar: show the Task View button (E2.9). Default on.
+    #[serde(default = "def_true")]
+    pub win10_show_taskview: bool,
+    /// Win10 taskbar search affordance: "button" (default), "box", or "hidden"
+    /// (E2.9). All open `mde search`; "box" is a wider labelled pill.
+    #[serde(default = "def_search_mode")]
+    pub win10_search_mode: String,
 }
 
 fn def_true() -> bool {
@@ -194,6 +201,9 @@ fn def_true() -> bool {
 }
 fn def_taskbar_location() -> String {
     "bottom".into()
+}
+fn def_search_mode() -> String {
+    "button".into()
 }
 
 impl Default for MenuState {
@@ -215,6 +225,8 @@ impl Default for MenuState {
             start_show_recent: true,
             start_show_suggested: true,
             taskbar_location: def_taskbar_location(),
+            win10_show_taskview: true,
+            win10_search_mode: def_search_mode(),
         }
     }
 }
@@ -321,6 +333,8 @@ mod tests {
             start_show_recent: false,
             start_show_suggested: true,
             taskbar_location: "top".into(),
+            win10_show_taskview: false,
+            win10_search_mode: "box".into(),
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);
