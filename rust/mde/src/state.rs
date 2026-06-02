@@ -199,8 +199,8 @@ pub struct MenuState {
     #[serde(default)]
     pub explorer_pins: Vec<PathBuf>,
     /// Win10 Explorer default landing when launched with no path: "quick" (Quick
-    /// access, the default), "thispc" (This PC), or "network" (Network). Read by
-    /// `files::run` (E8.4, E8.5).
+    /// access, the default), "thispc" (This PC), "network" (Network), or "cloud"
+    /// (paired devices). Read by `files::run` (E8.4, E8.5, E8.7).
     #[serde(default = "def_explorer_landing")]
     pub explorer_landing: String,
 }

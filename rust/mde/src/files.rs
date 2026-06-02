@@ -32,14 +32,16 @@ struct Entry {
 /// Which view the main area shows. `Folder` is the directory listing (every
 /// era's default). Under Win10 the no-path landing is configurable
 /// (`explorer_landing`): `QuickAccess` (the default — Frequent folders + Recent
-/// files), `ThisPc` (the known user folders + mounted drives), or `Network`
-/// (mounted remote locations). All are reachable any time from the nav pane.
+/// files), `ThisPc` (the known user folders + mounted drives), `Network`
+/// (mounted remote locations), or `CloudDevice` (paired KDE Connect devices).
+/// All are reachable any time from the nav pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
     Folder,
     QuickAccess,
     ThisPc,
     Network,
+    CloudDevice,
 }
 
 struct Files {
@@ -78,6 +80,8 @@ struct Files {
     pins: Vec<PathBuf>,
     /// The Quick access folder whose right-click Pin/Unpin menu is open, if any.
     qctx: Option<PathBuf>,
+    /// The selected Cloud device id (E8.7), when the CloudDevice pane is active.
+    cloud_device: Option<String>,
 }
 
 /// The menubar titles (indices used by `open_menu` / ToggleMenu).
@@ -105,6 +109,8 @@ enum Message {
     ShowQuick,
     ShowThisPc,
     ShowNetwork,
+    /// Show the Cloud devices pane; `Some(id)` selects that paired device (E8.7).
+    ShowCloud(Option<String>),
     ToggleFolders,
     HeaderClick(usize),
     ToggleMenu(usize),
@@ -141,6 +147,8 @@ pub fn run(args: &[String]) -> ExitCode {
         Pane::ThisPc
     } else if st.explorer_landing == "network" {
         Pane::Network
+    } else if st.explorer_landing == "cloud" {
+        Pane::CloudDevice
     } else {
         Pane::QuickAccess
     };
@@ -183,6 +191,7 @@ fn launch(start: PathBuf, pane: Pane, pins: Vec<PathBuf>) -> iced::Result {
                 pane,
                 pins,
                 qctx: None,
+                cloud_device: None,
             };
             f.load();
             (f, Task::none())
@@ -455,6 +464,10 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
         Message::ShowQuick => state.pane = Pane::QuickAccess,
         Message::ShowThisPc => state.pane = Pane::ThisPc,
         Message::ShowNetwork => state.pane = Pane::Network,
+        Message::ShowCloud(id) => {
+            state.cloud_device = id;
+            state.pane = Pane::CloudDevice;
+        }
         Message::ToggleFolders => state.show_tree = !state.show_tree,
         Message::HeaderClick(col) => {
             if state.sort_col == col {
@@ -982,6 +995,14 @@ fn status_bar(state: &Files) -> Element<'_, Message> {
                     .to_string()
             } else {
                 format!("Network — {n} location(s)")
+            }
+        }
+        None if state.pane == Pane::CloudDevice => {
+            let n = cloud_devices().len();
+            if n == 0 {
+                "No paired devices".to_string()
+            } else {
+                format!("{n} paired device(s)")
             }
         }
         None => format!("{} object(s)", state.entries.len()),
@@ -1623,6 +1644,117 @@ fn mount_uri(uri: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// A paired KDE Connect device from mde's connect store (E8.7).
+#[derive(serde::Deserialize)]
+struct CloudDevice {
+    id: String,
+    name: String,
+    #[serde(default)]
+    paired: bool,
+}
+
+/// The connect pairing store: `~/.config/mde/connect/devices.json` (honouring
+/// `$XDG_CONFIG_HOME`) — the direct-read fallback for the shared KDE Connect crate.
+fn connect_store() -> Option<PathBuf> {
+    crate::state::config_path()?
+        .parent()
+        .map(|d| d.join("connect").join("devices.json"))
+}
+
+/// Paired cloud devices, read from the connect store. Missing/garbage → none
+/// (never panics); only `paired` devices are returned.
+fn cloud_devices() -> Vec<CloudDevice> {
+    let Some(path) = connect_store() else {
+        return Vec::new();
+    };
+    let Ok(txt) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let list: Vec<CloudDevice> = serde_json::from_str(&txt).unwrap_or_default();
+    list.into_iter().filter(|d| d.paired).collect()
+}
+
+/// One Cloud-device row: a phone glyph, the device name, and its pairing status.
+/// Selecting it highlights the device (the sftp mount + browse lands in E8.8).
+fn cloud_row(d: &CloudDevice, selected: bool) -> Element<'static, Message> {
+    button(
+        Row::new()
+            .spacing(6.0)
+            .align_y(iced::Alignment::Center)
+            .push(crate::icons::icon_any(
+                &["phone", "smartphone", "folder-remote"],
+                16,
+            ))
+            .push(
+                text(d.name.clone())
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(5)),
+            )
+            .push(
+                text("Paired")
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(6))
+                    .color(palette::color(palette::GRAY_TEXT)),
+            ),
+    )
+    .on_press(Message::ShowCloud(Some(d.id.clone())))
+    .width(Length::Fill)
+    .padding(pad(2.0, 6.0, 2.0, 6.0))
+    .style(row_style(selected))
+    .into()
+}
+
+/// The Cloud devices pane: the paired KDE Connect devices (E8.7), the selected one
+/// highlighted. Empty → an empty-state line (the status bar echoes the count). The
+/// sftp mount + browse on select lands in E8.8.
+fn cloud_pane(state: &Files) -> Element<'_, Message> {
+    let devices = cloud_devices();
+    let mut col = Column::new().spacing(0.0);
+    col = col.push(section_header("Paired devices"));
+    if devices.is_empty() {
+        col = col.push(
+            container(
+                text("No paired devices. Pair a phone in Mobile Devices (Your Phone) to see it here.")
+                    .size(metrics::UI_PX),
+            )
+            .padding(pad(2.0, 6.0, 2.0, 6.0)),
+        );
+    } else {
+        for d in &devices {
+            let sel = state.cloud_device.as_deref() == Some(d.id.as_str());
+            col = col.push(cloud_row(d, sel));
+        }
+    }
+    iced::widget::stack![
+        frame::sunken().face(palette::color(palette::WINDOW)),
+        container(scrollable(col).style(mde_ui::scrollbar))
+            .padding(pad(2.0, 8.0, 2.0, 8.0))
+            .width(Length::Fill)
+            .height(Length::Fill),
+    ]
+    .into()
+}
+
+/// An indented cloud-device child node under "Cloud Files": phone glyph + name.
+fn cloud_nav_child(name: String, id: String, active: bool) -> Element<'static, Message> {
+    button(
+        Row::new()
+            .spacing(4.0)
+            .align_y(iced::Alignment::Center)
+            .push(Space::with_width(Length::Fixed(14.0)))
+            .push(crate::icons::icon_any(
+                &["phone", "smartphone", "folder-remote"],
+                16,
+            ))
+            .push(text(name).size(metrics::UI_PX)),
+    )
+    .on_press(Message::ShowCloud(Some(id)))
+    .width(Length::Fill)
+    .padding(pad(1.0, 6.0, 1.0, 6.0))
+    .style(row_style(active))
+    .into()
+}
+
 /// A Win10 nav-pane root node (Quick access / This PC): icon + bold label,
 /// accent-filled when it's the active pane.
 fn nav_node(
@@ -1696,6 +1828,18 @@ fn nav_pane(state: &Files) -> Element<'_, Message> {
         state.pane == Pane::Network,
         Message::ShowNetwork,
     ));
+    // Cloud Files: the root node lists all paired devices; each paired device is a
+    // child node, the selected one highlighted (E8.7).
+    col = col.push(nav_node(
+        "Cloud Files",
+        &["folder-cloud", "phone", "folder-remote"],
+        state.pane == Pane::CloudDevice && state.cloud_device.is_none(),
+        Message::ShowCloud(None),
+    ));
+    for d in cloud_devices() {
+        let sel = state.pane == Pane::CloudDevice && state.cloud_device.as_deref() == Some(&d.id);
+        col = col.push(cloud_nav_child(d.name, d.id, sel));
+    }
     iced::widget::stack![
         frame::sunken().face(palette::color(palette::WINDOW)),
         container(scrollable(col).style(mde_ui::scrollbar)).padding(2.0),
@@ -1736,6 +1880,7 @@ fn view(state: &Files) -> Element<'_, Message> {
             Pane::QuickAccess => quick_access(state),
             Pane::ThisPc => this_pc(),
             Pane::Network => network(),
+            Pane::CloudDevice => cloud_pane(state),
             Pane::Folder => list(state),
         };
         Row::new()
