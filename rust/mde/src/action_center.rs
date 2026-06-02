@@ -49,7 +49,8 @@ enum Message {
     ClearAll,           // dismiss every notification
     ToggleTile(String), // flip a quick-action tile + its backend
     ToggleExpand,       // show/hide the tiles past the first four
-    Brightness(u8),     // drag the backlight slider → brightnessctl set N%
+    Brightness(u8),     // drag the backlight slider (visual only; applied on release)
+    BrightnessSet,      // slider released → apply brightnessctl once (E3.6c)
     AllSettings,        // the foot "All settings" link → mde settings, then close
     Close,
     Event(Event),
@@ -152,9 +153,17 @@ fn update(state: &mut Center, message: Message) -> Task<Message> {
         }
         Message::ToggleExpand => state.expanded = !state.expanded,
         Message::Brightness(v) => {
-            // Set live while dragging, like Windows 10's action-center slider.
-            run(&format!("brightnessctl set {v}%"));
+            // Track the handle live, but DON'T spawn per drag-tick (E3.6c): the
+            // slider fires this on every pixel of motion, and each
+            // `brightnessctl` spawn was a `let _`-dropped, unreaped child — a
+            // single end-to-end drag forked dozens of zombies. Apply once on
+            // release instead (`BrightnessSet`).
             state.brightness = Some(v);
+        }
+        Message::BrightnessSet => {
+            if let Some(v) = state.brightness {
+                set_brightness(v);
+            }
         }
         Message::AllSettings => {
             launch_mde("settings");
@@ -184,6 +193,17 @@ fn sh(cmd: &str) -> String {
 /// Spawn a shell command detached (for a tile's toggle action).
 fn run(cmd: &str) {
     let _ = std::process::Command::new("sh").arg("-c").arg(cmd).spawn();
+}
+
+/// Apply the backlight level once, when the slider is released (E3.6c). Runs
+/// `brightnessctl` directly (no shell) and `.status()`-waits so the child is
+/// reaped — `brightnessctl` writes a sysfs file and exits in milliseconds, so
+/// the wait is negligible and a drag never leaves defunct processes behind.
+fn set_brightness(v: u8) {
+    let _ = std::process::Command::new("brightnessctl")
+        .arg("set")
+        .arg(format!("{v}%"))
+        .status();
 }
 
 /// Read the current backlight as a 0–100 percentage, or None when there's no
@@ -475,8 +495,9 @@ fn rel_time(t: SystemTime) -> String {
 }
 
 /// The Win10 brightness slider, shown below the tile grid only when there's a
-/// backlight. Dragging it sets brightness live (`brightnessctl set N%`). It's the
-/// non-toggle quick-action the square tiles can't express (E3.6a).
+/// backlight. The handle tracks the cursor live; the level is applied once on
+/// release (`brightnessctl set N%`) so a drag doesn't fork a process per tick
+/// (E3.6c). It's the non-toggle quick-action the square tiles can't express (E3.6a).
 fn brightness_slider(state: &Center) -> Element<'_, Message> {
     let Some(v) = state.brightness else {
         return Space::new(Length::Shrink, Length::Shrink).into();
@@ -492,6 +513,7 @@ fn brightness_slider(state: &Center) -> Element<'_, Message> {
         )
         .push(
             slider(0..=100u8, v, Message::Brightness)
+                .on_release(Message::BrightnessSet)
                 .width(Length::Fill)
                 .style(|_, _| slider::Style {
                     rail: slider::Rail {
