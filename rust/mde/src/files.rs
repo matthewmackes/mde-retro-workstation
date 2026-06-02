@@ -25,6 +25,15 @@ struct Entry {
     size: u64,
 }
 
+/// Which landing the main area shows. `Folder` is the directory listing (every
+/// era's default); `QuickAccess` is the Win10 landing — Frequent folders +
+/// Recent files — shown when `mde files` is launched with no path under Win10.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pane {
+    Folder,
+    QuickAccess,
+}
+
 struct Files {
     cwd: PathBuf,
     address: String,
@@ -54,6 +63,8 @@ struct Files {
     /// Details-list sort: column (0 = Name, 1 = Size, 2 = Type) and direction.
     sort_col: usize,
     sort_desc: bool,
+    /// Which landing the main area renders (Win10 Quick access vs a folder).
+    pane: Pane,
 }
 
 /// The menubar titles (indices used by `open_menu` / ToggleMenu).
@@ -71,6 +82,8 @@ enum Message {
     GoAddress,
     TreeToggle(PathBuf),
     TreeNav(PathBuf),
+    /// Open a Quick access entry: enter the folder, or hand a file to xdg-open.
+    OpenPath(PathBuf),
     ToggleFolders,
     HeaderClick(usize),
     ToggleMenu(usize),
@@ -92,13 +105,15 @@ enum Message {
 }
 
 pub fn run(args: &[String]) -> ExitCode {
-    let start = args
-        .first()
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
+    // An explicit directory argument always opens that folder. With no argument,
+    // Win10 lands on Quick access (its default); other eras open the home folder.
+    let explicit = args.first().map(PathBuf::from).filter(|p| p.is_dir());
+    let start = explicit
+        .clone()
         .or_else(home)
         .unwrap_or_else(|| PathBuf::from("/"));
-    match launch(start) {
+    let quick = explicit.is_none() && palette::is_windows10();
+    match launch(start, quick) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("mde files: {e}");
@@ -107,7 +122,7 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
-fn launch(start: PathBuf) -> iced::Result {
+fn launch(start: PathBuf, quick: bool) -> iced::Result {
     iced::application(title, update, view)
         .theme(|_| iced::Theme::Light)
         .subscription(|_: &Files| event::listen().map(Message::Event))
@@ -134,6 +149,11 @@ fn launch(start: PathBuf) -> iced::Result {
                 clipboard: None,
                 sort_col: 0,
                 sort_desc: false,
+                pane: if quick {
+                    Pane::QuickAccess
+                } else {
+                    Pane::Folder
+                },
             };
             f.load();
             (f, Task::none())
@@ -207,6 +227,7 @@ impl Files {
     }
 
     fn navigate(&mut self, path: PathBuf) {
+        self.pane = Pane::Folder;
         self.cwd = path.clone();
         self.load();
         self.history.truncate(self.hpos + 1);
@@ -298,6 +319,7 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             if state.hpos > 0 {
                 state.hpos -= 1;
                 state.cwd = state.history[state.hpos].clone();
+                state.pane = Pane::Folder;
                 state.load();
             }
         }
@@ -305,6 +327,7 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             if state.hpos + 1 < state.history.len() {
                 state.hpos += 1;
                 state.cwd = state.history[state.hpos].clone();
+                state.pane = Pane::Folder;
                 state.load();
             }
         }
@@ -362,6 +385,13 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             if p.is_dir() {
                 state.tree_expanded.insert(p.clone());
                 state.navigate(p);
+            }
+        }
+        Message::OpenPath(p) => {
+            if p.is_dir() {
+                state.navigate(p);
+            } else if Command::new("xdg-open").arg(&p).spawn().is_err() {
+                state.error = Some("Could not open this file.".to_string());
             }
         }
         Message::ToggleFolders => state.show_tree = !state.show_tree,
@@ -849,6 +879,7 @@ fn list(state: &Files) -> Element<'_, Message> {
 fn status_bar(state: &Files) -> Element<'_, Message> {
     let msg = match &state.error {
         Some(e) => e.clone(),
+        None if state.pane == Pane::QuickAccess => "Quick access".to_string(),
         None => format!("{} object(s)", state.entries.len()),
     };
     container(iced::widget::stack![
@@ -1041,13 +1072,162 @@ fn info_band(state: &Files) -> Element<'_, Message> {
         .into()
 }
 
-fn view(state: &Files) -> Element<'_, Message> {
+// --- Win10 Quick access landing (E8.2) -------------------------------------
+
+/// A standard XDG user folder under $HOME, included only if it exists.
+fn user_dir(name: &str) -> Option<PathBuf> {
+    let p = home()?.join(name);
+    p.is_dir().then_some(p)
+}
+
+/// Quick access "Frequent folders": the standard user folders that exist.
+/// (E8.3 appends the user's persisted pins.)
+fn frequent_folders() -> Vec<PathBuf> {
+    ["Desktop", "Documents", "Downloads", "Pictures"]
+        .into_iter()
+        .filter_map(user_dir)
+        .collect()
+}
+
+/// Quick access "Recent files": a live newest-first scan (by mtime) of the
+/// standard user folders + $HOME, one level deep, hidden files skipped, capped.
+/// Real mtimes rather than the recently-used registry, so it reflects actual
+/// file activity regardless of which app touched the file.
+fn recent_files() -> Vec<PathBuf> {
+    let mut roots = frequent_folders();
+    roots.extend(home());
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    for dir in roots {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            if e.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let Ok(md) = e.metadata() else { continue };
+            if md.is_file() {
+                if let Ok(mtime) = md.modified() {
+                    files.push((mtime, e.path()));
+                }
+            }
+        }
+    }
+    files.sort_by_key(|e| std::cmp::Reverse(e.0));
+    files.truncate(12);
+    files.into_iter().map(|(_, p)| p).collect()
+}
+
+/// A Quick access section header. The one larger size (INFO_TITLE_PX) is reserved
+/// for the web-view band, so headers use the standard UI size in bold.
+fn section_header(label: &'static str) -> Element<'static, Message> {
+    container(
+        text(label)
+            .size(metrics::UI_PX)
+            .font(mde_ui::font::ui_bold()),
+    )
+    .padding(pad(6.0, 0.0, 2.0, 2.0))
+    .into()
+}
+
+/// One Quick access row: a shell icon, the entry name, and a greyed path hint.
+/// Clicking opens the folder (navigate) or the file (xdg-open) via `OpenPath`.
+fn quick_row(p: &Path, is_folder: bool) -> Element<'static, Message> {
+    let name = p
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| p.display().to_string());
+    let hint = p
+        .parent()
+        .map(|d| d.display().to_string())
+        .unwrap_or_default();
+    let icon = if is_folder {
+        crate::icons::icon("folder", 16)
+    } else {
+        let e = Entry {
+            name: name.clone(),
+            path: p.to_path_buf(),
+            is_dir: false,
+            size: 0,
+        };
+        crate::icons::icon_any(icon_names(&e), 16)
+    };
+    button(
+        Row::new()
+            .spacing(6.0)
+            .align_y(iced::Alignment::Center)
+            .push(icon)
+            .push(
+                text(name)
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(5)),
+            )
+            .push(
+                text(hint)
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(6))
+                    .color(palette::color(palette::GRAY_TEXT)),
+            ),
+    )
+    .on_press(Message::OpenPath(p.to_path_buf()))
+    .width(Length::Fill)
+    .padding(pad(2.0, 6.0, 2.0, 6.0))
+    .style(row_style(false))
+    .into()
+}
+
+/// The Win10 Quick access landing: a Frequent-folders section over a Recent-files
+/// section, each row navigable. Real folders + a live mtime scan, no mockups.
+fn quick_access() -> Element<'static, Message> {
+    let mut col = Column::new().spacing(0.0);
+
+    col = col.push(section_header("Frequent folders"));
+    let folders = frequent_folders();
+    if folders.is_empty() {
+        col = col.push(
+            container(text("No standard folders found.").size(metrics::UI_PX))
+                .padding(pad(2.0, 6.0, 2.0, 6.0)),
+        );
+    } else {
+        for p in &folders {
+            col = col.push(quick_row(p, true));
+        }
+    }
+
+    col = col.push(Space::with_height(Length::Fixed(10.0)));
+
+    col = col.push(section_header("Recent files"));
+    let recents = recent_files();
+    if recents.is_empty() {
+        col = col.push(
+            container(text("No recent files.").size(metrics::UI_PX))
+                .padding(pad(2.0, 6.0, 2.0, 6.0)),
+        );
+    } else {
+        for p in &recents {
+            col = col.push(quick_row(p, false));
+        }
+    }
+
+    iced::widget::stack![
+        frame::sunken().face(palette::color(palette::WINDOW)),
+        container(scrollable(col).style(mde_ui::scrollbar))
+            .padding(pad(2.0, 8.0, 2.0, 8.0))
+            .width(Length::Fill)
+            .height(Length::Fill),
+    ]
+    .into()
+}
+
+/// The folder body: the left pane (web-view info band or folder tree) beside the
+/// details list. Every non-QuickAccess view uses this.
+fn folder_body(state: &Files) -> Element<'_, Message> {
     let left: Element<'_, Message> = if state.show_tree {
         tree_pane(state)
     } else {
         info_band(state)
     };
-    let body = Row::new()
+    Row::new()
         .push(
             container(left)
                 .width(Length::Fixed(180.0))
@@ -1059,23 +1239,34 @@ fn view(state: &Files) -> Element<'_, Message> {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .padding(2.0),
-        );
+        )
+        .into()
+}
+
+fn view(state: &Files) -> Element<'_, Message> {
+    // The main area: the Win10 Quick access landing (no path, Win10 era),
+    // otherwise the folder body (left pane + details list). E8.2.
+    let main: Element<'_, Message> = if palette::is_windows10() && state.pane == Pane::QuickAccess {
+        quick_access()
+    } else {
+        folder_body(state)
+    };
+    let main = container(main).width(Length::Fill).height(Length::Fill);
 
     // Win10 era: a flat command bar replaces the Win2000 menubar+toolbar (E8.1).
     // Other eras render the classic chrome unchanged.
-    let body = container(body).width(Length::Fill).height(Length::Fill);
     let content = if palette::is_windows10() {
         Column::new()
             .push(command_bar(state))
             .push(address_bar(state))
-            .push(body)
+            .push(main)
             .push(status_bar(state))
     } else {
         Column::new()
             .push(menubar(state))
             .push(toolbar(state))
             .push(address_bar(state))
-            .push(body)
+            .push(main)
             .push(status_bar(state))
     };
 
