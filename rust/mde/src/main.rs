@@ -41,6 +41,7 @@ mod task_view;
 mod taskbar_properties;
 mod tray;
 mod tui_setup;
+mod wallpaper;
 mod wlr;
 mod workspace;
 

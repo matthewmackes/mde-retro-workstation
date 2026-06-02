@@ -12,9 +12,7 @@
 
 use std::process::ExitCode;
 
-use iced::widget::{
-    checkbox, container, image, pick_list, scrollable, text, Column, Row, Space, Stack,
-};
+use iced::widget::{checkbox, container, pick_list, scrollable, text, Column, Row, Space, Stack};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Task};
 
 use mde_ui::{button, frame, group_box, metrics, palette};
@@ -126,44 +124,9 @@ impl std::fmt::Display for Orient {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BgMode {
-    Center,
-    Tile,
-    Stretch,
-    Fit,
-    Fill,
-}
-impl BgMode {
-    const ALL: [BgMode; 5] = [
-        BgMode::Center,
-        BgMode::Tile,
-        BgMode::Stretch,
-        BgMode::Fit,
-        BgMode::Fill,
-    ];
-    fn swaybg(self) -> &'static str {
-        match self {
-            BgMode::Center => "center",
-            BgMode::Tile => "tile",
-            BgMode::Stretch => "stretch",
-            BgMode::Fit => "fit",
-            BgMode::Fill => "fill",
-        }
-    }
-}
-impl std::fmt::Display for BgMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            BgMode::Center => "Center",
-            BgMode::Tile => "Tile",
-            BgMode::Stretch => "Stretch",
-            BgMode::Fit => "Fit",
-            BgMode::Fill => "Fill",
-        };
-        f.write_str(s)
-    }
-}
+// BgMode, the wallpaper scan, Browse, and the preview render now live in
+// `crate::wallpaper` (shared with the Win10 Personalization ▸ Background page).
+use crate::wallpaper::{self, BgMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scheme {
@@ -500,7 +463,7 @@ fn gui() -> iced::Result {
             let live = outputs::query();
             let desired = outputs::desired_from(&live);
             let selected = live.iter().position(|o| o.focused).unwrap_or(0);
-            let wallpapers = scan_wallpapers();
+            let wallpapers = wallpaper::scan();
             let st0 = crate::state::load();
             (
                 Display {
@@ -571,7 +534,7 @@ fn update(state: &mut Display, message: Message) -> Task<Message> {
         Message::SelectWallpaper(i) => state.wp_selected = Some(i),
         Message::SetBgMode(m) => state.bg_mode = m,
         Message::Browse => {
-            return Task::perform(async { browse_file() }, Message::Browsed);
+            return Task::perform(async { wallpaper::browse() }, Message::Browsed);
         }
         Message::Browsed(Some(path)) => {
             state.wallpapers.push(path);
@@ -720,63 +683,6 @@ fn ensure_backends() {
     }
 }
 
-// --- wallpaper sources ------------------------------------------------------
-
-fn scan_wallpapers() -> Vec<String> {
-    let mut out = Vec::new();
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
-    if let Some(h) = &home {
-        dirs.push(h.join("Pictures"));
-        dirs.push(h.join(".local/share/backgrounds"));
-        dirs.push(h.join(".local/share/mde/wallpapers")); // bundled look-alike set
-    }
-    dirs.push("/usr/share/backgrounds".into());
-    for dir in dirs {
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for e in entries.flatten() {
-                let p = e.path();
-                let ext = p
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
-                if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "bmp" | "webp") {
-                    if let Some(s) = p.to_str() {
-                        out.push(s.to_string());
-                    }
-                }
-            }
-        }
-    }
-    out.sort();
-    out.dedup();
-    out
-}
-
-/// Open the shell's own Common File Dialog (`mde filedialog`) and return the
-/// chosen path. Falls back to nothing if the dialog is cancelled.
-fn browse_file() -> Option<String> {
-    let exe = std::env::current_exe().ok()?;
-    let o = std::process::Command::new(exe)
-        .args([
-            "filedialog",
-            "--title",
-            "Browse",
-            "--filter",
-            "Images:png,jpg,jpeg,bmp,webp;All Files:*",
-        ])
-        .output()
-        .ok()?;
-    if o.status.success() {
-        let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-        if !s.is_empty() {
-            return Some(s);
-        }
-    }
-    None
-}
-
 // --- view helpers -----------------------------------------------------------
 
 fn pad(t: f32, r: f32, b: f32, l: f32) -> Padding {
@@ -858,23 +764,11 @@ fn monitor_graphic<'a>(
 
 /// The preview "screen" content: the chosen wallpaper, or a flat desktop color.
 fn screen_preview(state: &Display) -> Element<'static, Message> {
-    if let Some(path) = state.wp_selected.and_then(|i| state.wallpapers.get(i)) {
-        return image(image::Handle::from_path(path))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .content_fit(iced::ContentFit::Cover)
-            .into();
-    }
-    // No wallpaper: the themed desktop background (Win2000 blue / Carbon gray),
-    // via the palette edge rather than a raw literal (§2.1).
-    container(Space::new(Length::Fill, Length::Fill))
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(|_| container::Style {
-            background: Some(Background::Color(palette::color(palette::BACKGROUND))),
-            ..container::Style::default()
-        })
-        .into()
+    let selected = state
+        .wp_selected
+        .and_then(|i| state.wallpapers.get(i))
+        .map(String::as_str);
+    wallpaper::preview(selected)
 }
 
 // --- tabs -------------------------------------------------------------------
