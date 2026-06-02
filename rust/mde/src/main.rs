@@ -100,6 +100,9 @@ fn main() -> ExitCode {
             "red" => 2,
             _ => 3, // neutral
         });
+        // The Windows 10 UI accent (selection/highlight) is its own slot (E7.1),
+        // separate from the icon accent above.
+        palette::set_win10_accent(st.win10_accent);
     }
 
     // Resolve the subcommand from argv[0] basename if it looks like `mde-foo`.

@@ -151,6 +151,11 @@ pub struct MenuState {
     /// this is ignored. Default 4; a value ≤ 1 means a single desktop (no band).
     #[serde(default = "def_virtual_desktops")]
     pub virtual_desktops: u32,
+    /// Windows 10 UI accent index (E7.1/E7.5) — into `palette::WIN10_ACCENTS`.
+    /// Drives selection/highlight/active-title under the Win10 theme (distinct
+    /// from `icon_color`, which only tints icons). 0 = the stock blue.
+    #[serde(default)]
+    pub win10_accent: u8,
 }
 
 impl Default for MenuState {
@@ -166,6 +171,7 @@ impl Default for MenuState {
             quick_actions: def_quick_actions(),
             focus_assist: false,
             virtual_desktops: def_virtual_desktops(),
+            win10_accent: 0,
         }
     }
 }
@@ -261,6 +267,7 @@ mod tests {
             quick_actions: vec!["wifi".into(), "mute".into()],
             focus_assist: true,
             virtual_desktops: 6,
+            win10_accent: 4,
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);

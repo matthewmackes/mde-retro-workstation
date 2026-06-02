@@ -133,6 +133,23 @@ pub fn accent_idx() -> u8 {
     ACCENT.load(Ordering::Relaxed)
 }
 
+// The Windows 10 UI accent slot (E7.1). Distinct from ACCENT (which only tints
+// icons): this index drives selection / highlight / active-title through the
+// `win10()` remap, so the Colors picker (E7.5) can recolor the whole shell. 0 =
+// the stock mode-shaded blue.
+static WIN10_ACCENT: AtomicU8 = AtomicU8::new(0);
+
+/// Set the Windows 10 UI accent (index into [`WIN10_ACCENTS`]). 0 keeps the
+/// stock mode-shaded blue; other indices select a fixed preset.
+pub fn set_win10_accent(idx: u8) {
+    WIN10_ACCENT.store(idx, Ordering::Relaxed);
+}
+
+/// The active Windows 10 UI accent index.
+pub fn win10_accent_idx() -> u8 {
+    WIN10_ACCENT.load(Ordering::Relaxed)
+}
+
 /// Whether the BeOS theme is active.
 pub fn is_beos() -> bool {
     theme() == Theme::Beos
@@ -341,16 +358,35 @@ fn carbon(rgb: Rgb) -> Rgb {
     }
 }
 
-/// The default Windows 10 interactive accent for the active mode (UI accent —
-/// selection, focus, Start tile highlight, Action Center toggles). A brighter,
-/// cyan-er blue than Carbon Blue 60 — that hue shift is the era's main tell.
-/// E0 ships only this stock value; the user-selectable Colors picker is a later
-/// epic, exactly as [`carbon_accent`] is a fixed value today.
+/// The Windows 10 preset accent colors — the Colors picker's swatch grid (E7.5).
+/// Index 0 is the stock blue (mode-shaded in [`win10_accent`]); the rest are the
+/// fixed picks the user can choose. §2.1: the only place these accent hexes live.
+pub const WIN10_ACCENTS: &[Rgb] = &[
+    (0x00, 0x78, 0xd4), // 0 stock blue (default; mode-shaded below)
+    (0x00, 0x99, 0xbc), // 1 teal
+    (0x10, 0x89, 0x3e), // 2 green
+    (0xc1, 0x9c, 0x00), // 3 gold
+    (0xe7, 0x48, 0x56), // 4 red
+    (0x88, 0x17, 0x98), // 5 purple
+    (0x00, 0x63, 0xb1), // 6 navy
+    (0x76, 0x76, 0x76), // 7 gray
+];
+
+/// The active Windows 10 interactive accent (UI accent — selection, focus, Start
+/// tile highlight, Action Center toggles). A brighter, cyan-er blue than Carbon
+/// Blue 60 — that hue shift is the era's main tell. Index 0 keeps the stock
+/// mode-shaded blue; the Colors picker (E7.5) sets other indices via
+/// [`set_win10_accent`], persisted as `state.win10_accent`.
 pub fn win10_accent() -> Rgb {
-    if is_dark() {
-        (0x28, 0x99, 0xf5) // brighter blue on dark
+    let idx = win10_accent_idx() as usize;
+    if idx == 0 {
+        if is_dark() {
+            (0x28, 0x99, 0xf5) // brighter blue on dark
+        } else {
+            (0x00, 0x78, 0xd4) // Windows 10 stock accent on light
+        }
     } else {
-        (0x00, 0x78, 0xd4) // Windows 10 stock accent on light
+        WIN10_ACCENTS.get(idx).copied().unwrap_or(WIN10_ACCENTS[0])
     }
 }
 

@@ -114,6 +114,16 @@ fn windows10_remap_pins() {
     palette::set_dark(true);
     assert_eq!(palette::win10_accent(), (0x28, 0x99, 0xf5));
 
+    // The settable accent slot (E7.1): a non-zero index picks a fixed preset
+    // and it reaches selection through the same remap.
+    palette::set_dark(false);
+    palette::set_win10_accent(4); // red preset
+    assert_eq!(palette::win10_accent(), palette::WIN10_ACCENTS[4]);
+    assert_eq!(palette::win10_accent(), (0xe7, 0x48, 0x56));
+    let hi = palette::color(palette::HIGHLIGHT);
+    assert_eq!((ch(hi.r), ch(hi.g), ch(hi.b)), (0xe7, 0x48, 0x56));
+    palette::set_win10_accent(0); // back to stock
+
     // Sentinel passthrough: white title text stays light; the frame sentinel
     // becomes a border gray, never black text.
     let tt = palette::color(palette::TITLE_TEXT);
@@ -127,6 +137,7 @@ fn windows10_remap_pins() {
     assert_eq!((ch(w.r), ch(w.g), ch(w.b)), (0xff, 0xff, 0xff));
 
     // Restore the process-global default for other tests.
+    palette::set_win10_accent(0);
     palette::set_theme(Theme::Win2000);
     palette::set_dark(true);
 }
