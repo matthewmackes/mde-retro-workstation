@@ -13,7 +13,7 @@ use std::process::{exit, ExitCode};
 use std::time::{Duration, SystemTime};
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{container, mouse_area, row, scrollable, text, Column, Row, Space};
+use iced::widget::{container, mouse_area, row, scrollable, slider, text, Column, Row, Space};
 use iced::{
     event, keyboard, Background, Border, Color, Element, Event, Length, Padding, Shadow, Task,
 };
@@ -34,6 +34,9 @@ struct Center {
     notes: Vec<Notif>,
     /// Quick-action tiles in order: (id, currently-on).
     tiles: Vec<(String, bool)>,
+    /// Current backlight brightness 0–100, or None when there's no backlight
+    /// (`brightnessctl` absent/headless) — the slider is hidden then.
+    brightness: Option<u8>,
     /// Whether the quick-action grid is expanded past the first four.
     expanded: bool,
 }
@@ -46,6 +49,8 @@ enum Message {
     ClearAll,           // dismiss every notification
     ToggleTile(String), // flip a quick-action tile + its backend
     ToggleExpand,       // show/hide the tiles past the first four
+    Brightness(u8),     // drag the backlight slider → brightnessctl set N%
+    AllSettings,        // the foot "All settings" link → mde settings, then close
     Close,
     Event(Event),
 }
@@ -100,6 +105,7 @@ fn launch() -> Result<(), iced_layershell::Error> {
                 Center {
                     notes: notifyd::load_file().notifications,
                     tiles,
+                    brightness: read_brightness(),
                     expanded: false,
                 },
                 Task::none(),
@@ -145,6 +151,15 @@ fn update(state: &mut Center, message: Message) -> Task<Message> {
             }
         }
         Message::ToggleExpand => state.expanded = !state.expanded,
+        Message::Brightness(v) => {
+            // Set live while dragging, like Windows 10's action-center slider.
+            run(&format!("brightnessctl set {v}%"));
+            state.brightness = Some(v);
+        }
+        Message::AllSettings => {
+            launch_mde("settings");
+            exit(0);
+        }
         Message::Close => exit(0),
         Message::Event(Event::Keyboard(keyboard::Event::KeyPressed {
             key: keyboard::Key::Named(keyboard::key::Named::Escape),
@@ -169,6 +184,25 @@ fn sh(cmd: &str) -> String {
 /// Spawn a shell command detached (for a tile's toggle action).
 fn run(cmd: &str) {
     let _ = std::process::Command::new("sh").arg("-c").arg(cmd).spawn();
+}
+
+/// Read the current backlight as a 0–100 percentage, or None when there's no
+/// backlight (`brightnessctl` absent, or a headless/desktop box) — no slider then.
+fn read_brightness() -> Option<u8> {
+    // `brightnessctl -m` → CSV "device,class,current,percent,max"; field 4 is "NN%".
+    let pct = sh("brightnessctl -m");
+    pct.split(',')
+        .nth(3)?
+        .trim()
+        .trim_end_matches('%')
+        .parse()
+        .ok()
+}
+
+/// Launch an `mde <sub>` window from a foot link, using the running binary.
+fn launch_mde(sub: &str) {
+    let exe = std::env::current_exe().unwrap_or_else(|_| "mde".into());
+    let _ = std::process::Command::new(exe).arg(sub).spawn();
 }
 
 /// The display label + Nerd glyph for a quick-action tile id, or None if the id
@@ -345,7 +379,9 @@ fn view(state: &Center) -> Element<'_, Message> {
             .padding(10.0)
             .spacing(10.0)
             .push(container(body).height(Length::Fill))
-            .push(tile_grid(state)),
+            .push(tile_grid(state))
+            .push(brightness_slider(state))
+            .push(all_settings_link()),
     )
     .width(Length::Fixed(PANE_W))
     .height(Length::Fill)
@@ -436,6 +472,86 @@ fn rel_time(t: SystemTime) -> String {
         }
         Err(_) => "now".to_string(),
     }
+}
+
+/// The Win10 brightness slider, shown below the tile grid only when there's a
+/// backlight. Dragging it sets brightness live (`brightnessctl set N%`). It's the
+/// non-toggle quick-action the square tiles can't express (E3.6a).
+fn brightness_slider(state: &Center) -> Element<'_, Message> {
+    let Some(v) = state.brightness else {
+        return Space::new(Length::Shrink, Length::Shrink).into();
+    };
+    Row::new()
+        .spacing(8.0)
+        .align_y(Vertical::Center)
+        .push(
+            text("\u{f185}") // fa-sun
+                .size(16.0)
+                .font(mde_ui::font::NERD)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(
+            slider(0..=100u8, v, Message::Brightness)
+                .width(Length::Fill)
+                .style(|_, _| slider::Style {
+                    rail: slider::Rail {
+                        backgrounds: (
+                            Background::Color(palette::accent()),
+                            Background::Color(palette::color(palette::WINDOW_FRAME)),
+                        ),
+                        width: 4.0,
+                        border: Border {
+                            color: palette::color(palette::WINDOW_FRAME),
+                            width: 0.0,
+                            radius: 2.0.into(),
+                        },
+                    },
+                    handle: slider::Handle {
+                        shape: slider::HandleShape::Circle { radius: 7.0 },
+                        background: Background::Color(palette::accent()),
+                        border_width: 1.0,
+                        border_color: palette::color(palette::WINDOW_FRAME),
+                    },
+                }),
+        )
+        .into()
+}
+
+/// The Win10 full-width "All settings" link at the foot of the pane: launches
+/// `mde settings` and closes the center. The square grid holds toggle/slider
+/// quick-actions; this launch affordance sits below them, as in Windows 10 (E3.6a).
+fn all_settings_link() -> Element<'static, Message> {
+    mouse_area(
+        container(
+            Row::new()
+                .spacing(8.0)
+                .align_y(Vertical::Center)
+                .push(
+                    text("\u{f013}") // fa-gear
+                        .size(16.0)
+                        .font(mde_ui::font::NERD)
+                        .color(palette::color(palette::WINDOW_TEXT)),
+                )
+                .push(
+                    text("All settings")
+                        .size(metrics::UI_PX)
+                        .color(palette::color(palette::WINDOW_TEXT)),
+                ),
+        )
+        .width(Length::Fill)
+        .padding(pad(6.0, 8.0, 6.0, 8.0))
+        .style(|_| container::Style {
+            background: Some(Background::Color(palette::color(palette::WINDOW))),
+            border: Border {
+                color: palette::color(palette::WINDOW_FRAME),
+                width: 1.0,
+                radius: 2.0.into(),
+            },
+            ..container::Style::default()
+        }),
+    )
+    .on_press(Message::AllSettings)
+    .into()
 }
 
 /// The quick-action tile grid: the first four tiles, with an Expand link to the
