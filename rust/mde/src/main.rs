@@ -122,6 +122,7 @@ fn main() -> ExitCode {
         "menu" => menu::run(rest),
         "start-win10" => start_win10::run(rest),
         "action-center" => action_center::run_center(rest),
+        "toast" => action_center::run_toast(rest),
         // Per-era Start dispatcher for the labwc keybind: opens the right Start
         // for the active theme (the startup block above already set it).
         "start" => {

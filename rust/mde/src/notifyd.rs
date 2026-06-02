@@ -154,6 +154,11 @@ impl Notifyd {
             s.push(notif);
         }
         mirror(&self.store);
+        // Pop a toast for the new notification (E3.8). Transient hints (e.g. a
+        // volume OSD) collect in history but don't toast.
+        if !transient {
+            spawn_toast(id);
+        }
         id
     }
 
@@ -200,6 +205,16 @@ impl Notifyd {
         id: u32,
         action_key: &str,
     ) -> zbus::Result<()>;
+}
+
+/// Spawn `mde toast <id>` to pop a toast for a new notification (E3.8).
+fn spawn_toast(id: u32) {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::process::Command::new(exe)
+            .arg("toast")
+            .arg(id.to_string())
+            .spawn();
+    }
 }
 
 /// The freedesktop `actions` array is a flat [key, label, key, label, …] list.

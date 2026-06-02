@@ -9,7 +9,7 @@
 //! a daemon action bridge) layer on in later stories.
 
 use std::process::{exit, ExitCode};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{container, mouse_area, row, scrollable, text, Column, Row, Space};
@@ -476,5 +476,182 @@ fn quick_tile(id: &str, on: bool) -> Element<'static, Message> {
             }),
     )
     .on_press(Message::ToggleTile(id.to_string()))
+    .into()
+}
+
+// --- toast (mde toast <id>) --------------------------------------------------
+
+const TOAST_W: f32 = 360.0;
+const TOAST_H: f32 = 84.0;
+const TOAST_BAR: f32 = 40.0; // clear the Win10 taskbar (WIN10_BAR_H)
+
+struct Toast {
+    note: Notif,
+}
+
+#[to_layer_message]
+#[derive(Debug, Clone)]
+enum ToastMsg {
+    Tick,  // auto-dismiss timer fired → hide the toast (it stays in history)
+    Close, // x / body click → dismiss the notification entirely
+}
+
+/// `mde toast <id>` — pop the notification with this id as a bottom-right toast.
+/// notifyd spawns one per Notify; it auto-dismisses on a timer or on click.
+pub fn run_toast(args: &[String]) -> ExitCode {
+    let Some(id) = args.first().and_then(|s| s.parse::<u32>().ok()) else {
+        eprintln!("usage: mde toast <id>");
+        return ExitCode::from(2);
+    };
+    let Some(note) = notifyd::load_file()
+        .notifications
+        .into_iter()
+        .find(|n| n.id == id)
+    else {
+        return ExitCode::SUCCESS; // already cleared — nothing to show
+    };
+    match launch_toast(note) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("mde toast: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Live toast count → this toast's upward offset, so concurrent toasts stack
+/// instead of overlapping. Uses a runtime marker dir, pruning dead pids (toasts
+/// exit(0) without cleanup, so the next launch reclaims their slot).
+fn toast_offset() -> f32 {
+    let dir = format!(
+        "{}/mde-toasts",
+        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string())
+    );
+    let _ = std::fs::create_dir_all(&dir);
+    let mut live = 0u32;
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            match e.file_name().to_string_lossy().parse::<u32>() {
+                Ok(pid) if std::path::Path::new(&format!("/proc/{pid}")).exists() => live += 1,
+                _ => {
+                    let _ = std::fs::remove_file(e.path());
+                }
+            }
+        }
+    }
+    let _ = std::fs::write(format!("{dir}/{}", std::process::id()), "");
+    live as f32 * (TOAST_H + 8.0)
+}
+
+fn launch_toast(note: Notif) -> Result<(), iced_layershell::Error> {
+    // Critical notifications (urgency 2) don't auto-dismiss.
+    let critical = note.hint_urgency >= 2;
+    let bottom = (TOAST_BAR + 8.0 + toast_offset()) as i32;
+    application(
+        |_: &Toast| "mde-toast".to_string(),
+        toast_update,
+        toast_view,
+    )
+    .style(|_: &Toast, _: &iced::Theme| Appearance {
+        background_color: Color::TRANSPARENT,
+        text_color: palette::color(palette::WINDOW_TEXT),
+    })
+    .subscription(move |_: &Toast| {
+        if critical {
+            iced::Subscription::none()
+        } else {
+            iced::time::every(Duration::from_secs(5)).map(|_| ToastMsg::Tick)
+        }
+    })
+    .font(mde_ui::font::REGULAR_BYTES)
+    .font(mde_ui::font::BOLD_BYTES)
+    .font(mde_ui::font::PLEX_REGULAR_BYTES)
+    .font(mde_ui::font::PLEX_BOLD_BYTES)
+    .default_font(mde_ui::font::ui())
+    .settings(MainSettings {
+        layer_settings: LayerShellSettings {
+            // A SMALL surface (not a full-screen catcher) so clicks elsewhere fall
+            // through to the apps below; non-focus-stealing.
+            anchor: Anchor::Bottom | Anchor::Right,
+            size: Some((TOAST_W as u32, TOAST_H as u32)),
+            margin: (0, 12, bottom, 0),
+            exclusive_zone: 0,
+            keyboard_interactivity: KeyboardInteractivity::None,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .run_with(move || (Toast { note }, Task::none()))
+}
+
+fn toast_update(state: &mut Toast, message: ToastMsg) -> Task<ToastMsg> {
+    match message {
+        // Timer: the toast just goes away; the record stays in the history.
+        ToastMsg::Tick => exit(0),
+        // x / body: dismiss the notification entirely.
+        ToastMsg::Close => {
+            dbus_close(state.note.id);
+            exit(0)
+        }
+        _ => Task::none(),
+    }
+}
+
+fn toast_view(state: &Toast) -> Element<'_, ToastMsg> {
+    let n = &state.note;
+    let head = Row::new()
+        .align_y(Vertical::Center)
+        .push(
+            text(n.summary.clone())
+                .size(metrics::UI_PX)
+                .font(mde_ui::font::ui_bold())
+                .width(Length::Fill),
+        )
+        .push(
+            mouse_area(
+                container(
+                    text("\u{f00d}")
+                        .size(metrics::UI_PX)
+                        .font(mde_ui::font::NERD)
+                        .color(palette::color(palette::GRAY_TEXT)),
+                )
+                .padding(pad(2.0, 6.0, 2.0, 6.0)),
+            )
+            .on_press(ToastMsg::Close),
+        );
+    let mut inner = Column::new().spacing(2.0).width(Length::Fill).push(head);
+    if !n.body.is_empty() {
+        inner = inner.push(
+            text(n.body.clone())
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        );
+    }
+    let icon = crate::icons::icon_any(&[n.app_icon.as_str(), "dialog-information"], 24);
+    // Click the body to dismiss; the toast itself is the whole surface.
+    mouse_area(
+        container(row![icon, inner].spacing(8.0).align_y(Vertical::Top))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(10.0)
+            .style(|_| container::Style {
+                background: Some(Background::Color(palette::color(palette::MENU))),
+                border: Border {
+                    color: palette::color(palette::WINDOW_FRAME),
+                    width: 1.0,
+                    radius: 2.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color {
+                        a: 0.4,
+                        ..Color::BLACK
+                    },
+                    offset: iced::Vector::new(-2.0, -2.0),
+                    blur_radius: 14.0,
+                },
+                ..container::Style::default()
+            }),
+    )
+    .on_press(ToastMsg::Close)
     .into()
 }
