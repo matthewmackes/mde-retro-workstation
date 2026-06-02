@@ -1,8 +1,13 @@
-//! Small Win2000-style dialogs: Log Off (confirm) and Shut Down (dropdown).
+//! Small session dialogs: Log Off, Shut Down, and Lock (`mde logoff`,
+//! `mde shutdown`, `mde lock`).
 //!
-//! Each runs as its own subcommand/process (`mde logoff`, `mde shutdown`) in a
-//! small fixed window; sway draws the navy title bar. Buttons use the mde-ui
-//! 3D push button; actions go through labwc / systemctl.
+//! Each runs as its own subcommand/process in a small fixed window; **labwc**
+//! draws the title bar. Under the classic eras these are the Win2000 confirm /
+//! dropdown; under the **Windows 10** theme `shutdown` renders a power flyout
+//! (Sleep · Shut down · Restart) and `logoff` an account flyout (Lock · Sign
+//! out), both one-click. `mde lock` is headless (`loginctl lock-session`).
+//! Buttons use the mde-ui 3D push button (flat under Carbon/Win10); actions go
+//! through labwc / systemctl / logind.
 
 use std::fmt;
 use std::process::{exit, Command, ExitCode};
@@ -31,6 +36,32 @@ fn silver<'a, Msg: 'a>(content: impl Into<Element<'a, Msg>>) -> Element<'a, Msg>
             background: Some(Background::Color(palette::color(palette::MENU))),
             ..container::Style::default()
         })
+        .into()
+}
+
+/// The Windows 10 power / account flyout body: flat full-width rows over the
+/// charcoal `MENU` surface (the buttons flatten under the Win10 theme). Each row
+/// carries a [`Choice`] that the dialog's update acts on immediately (E19.3/E19.4).
+fn flyout<'a>(rows: Vec<Element<'a, M>>) -> Element<'a, M> {
+    let mut col = Column::new().spacing(2.0);
+    for r in rows {
+        col = col.push(r);
+    }
+    container(col)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(8.0)
+        .style(|_| container::Style {
+            background: Some(Background::Color(palette::color(palette::MENU))),
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn flyout_row<'a>(label: &'a str, choice: Choice) -> Element<'a, M> {
+    button(text(label).size(metrics::UI_PX))
+        .on_press(M::Pick(choice))
+        .width(Length::Fill)
         .into()
 }
 
@@ -112,6 +143,8 @@ fn do_logoff() -> ! {
 fn logoff_update(_: &mut LogOff, m: M) -> Task<M> {
     match m {
         M::Confirm => do_logoff(),
+        // The Win10 account flyout's Lock row (E19.4) acts immediately.
+        M::Pick(c) => do_shutdown(&c),
         M::Cancel => exit(0),
         M::Event(e) if is_enter(&e) => do_logoff(),
         M::Event(e) if is_escape(&e) => exit(0),
@@ -120,6 +153,17 @@ fn logoff_update(_: &mut LogOff, m: M) -> Task<M> {
 }
 
 fn logoff_view(_: &LogOff) -> Element<'_, M> {
+    if palette::is_windows10() {
+        // Win10 account flyout: Lock / Sign out rows (Lock -> logind, Sign out
+        // -> the same labwc --exit as the classic "Yes").
+        return flyout(vec![
+            flyout_row("Lock", Choice::Lock),
+            button(text("Sign out").size(metrics::UI_PX))
+                .on_press(M::Confirm)
+                .width(Length::Fill)
+                .into(),
+        ]);
+    }
     let buttons = Row::new()
         .spacing(8.0)
         .push(Space::with_width(Length::Fill))
@@ -151,6 +195,7 @@ enum Choice {
     ShutDown,
     Restart,
     StandBy,
+    Lock,
 }
 
 impl fmt::Display for Choice {
@@ -160,6 +205,7 @@ impl fmt::Display for Choice {
             Choice::ShutDown => "Shut down",
             Choice::Restart => "Restart",
             Choice::StandBy => "Stand by",
+            Choice::Lock => "Lock",
         })
     }
 }
@@ -199,10 +245,12 @@ pub fn shutdown() -> ExitCode {
 fn do_shutdown(sel: &Choice) -> ! {
     let mut cmd = match sel {
         Choice::LogOff => Command::new("labwc"),
+        Choice::Lock => Command::new("loginctl"),
         _ => Command::new("systemctl"),
     };
     let verb = match sel {
         Choice::LogOff => "--exit",
+        Choice::Lock => "lock-session",
         Choice::ShutDown => "poweroff",
         Choice::Restart => "reboot",
         Choice::StandBy => "suspend",
@@ -223,9 +271,34 @@ fn do_shutdown(sel: &Choice) -> ! {
     }
 }
 
+/// `mde lock` — headless: lock the session via logind (`loginctl
+/// lock-session`), which labwc/swayidle turns into the swaylock surface. The
+/// status is checked so a missing session (no logind seat) exits non-zero rather
+/// than looking like success (E19.2).
+pub fn lock() -> ExitCode {
+    match Command::new("loginctl").arg("lock-session").status() {
+        Ok(s) if s.success() => ExitCode::SUCCESS,
+        Ok(s) => {
+            eprintln!("mde lock: 'loginctl lock-session' failed ({s})");
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("mde lock: could not run loginctl: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn shutdown_update(state: &mut Shutdown, m: M) -> Task<M> {
     match m {
-        M::Pick(c) => state.sel = c,
+        // The Win10 power flyout is one-click: picking a row acts immediately.
+        // The classic Win2000 dropdown only selects; OK confirms.
+        M::Pick(c) => {
+            state.sel = c;
+            if palette::is_windows10() {
+                do_shutdown(&state.sel);
+            }
+        }
         M::Cancel => exit(0),
         M::Confirm => do_shutdown(&state.sel),
         M::Event(e) if is_enter(&e) => do_shutdown(&state.sel),
@@ -236,6 +309,15 @@ fn shutdown_update(state: &mut Shutdown, m: M) -> Task<M> {
 }
 
 fn shutdown_view(state: &Shutdown) -> Element<'_, M> {
+    if palette::is_windows10() {
+        // Win10 power flyout: flat full-width Sleep / Shut down / Restart rows;
+        // each acts on click (handled in shutdown_update under the era).
+        return flyout(vec![
+            flyout_row("Sleep", Choice::StandBy),
+            flyout_row("Shut down", Choice::ShutDown),
+            flyout_row("Restart", Choice::Restart),
+        ]);
+    }
     let choices = vec![
         Choice::LogOff,
         Choice::ShutDown,

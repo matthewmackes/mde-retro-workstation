@@ -51,6 +51,10 @@
   </desktops>
 
   <keyboard>
+    <!-- Lock the session (Win+L). logind issues the Lock; swayidle/swaylock
+         raise the lock surface. First entry, and in <keyboard> only — the
+         <mouse><default/> block is untouched (§7). -->
+    <keybind key="W-l"><action name="Execute"><command>mde lock</command></action></keybind>
     <!-- Window management (Win2000-style). -->
     <keybind key="A-F4"><action name="Close"/></keybind>
     <keybind key="W-Up"><action name="ToggleMaximize"/></keybind>

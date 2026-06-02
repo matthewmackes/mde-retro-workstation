@@ -66,8 +66,9 @@ COMMANDS:
     taskbar-properties   Taskbar and Start Menu Properties
     setup [--tui|--gui|--dry-run]   Install/configure MDE-Retro
     install [--assets]   Fetch Chicago95 + Win2k assets (first run)
-    logoff           Log Off confirmation dialog
-    shutdown         Shut Down dialog
+    logoff           Log Off / Win10 account flyout (Lock · Sign out)
+    shutdown         Shut Down / Win10 power flyout (Sleep · Shut down · Restart)
+    lock             Lock the session (loginctl lock-session)
 
     -h, --help       Show this help
     -V, --version    Show version
@@ -177,6 +178,7 @@ fn main() -> ExitCode {
         }
         "logoff" => dialogs::logoff(),
         "shutdown" => dialogs::shutdown(),
+        "lock" => dialogs::lock(),
         "setup" => installer::dispatch(rest),
         "install" => install::run(rest),
         "-V" | "--version" => {
