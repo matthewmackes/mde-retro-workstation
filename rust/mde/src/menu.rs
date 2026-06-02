@@ -789,16 +789,24 @@ fn banner<'a>(height: f32) -> Element<'a, Message> {
     let w = BANNER_W;
     let h = height.max(1.0);
     let ty = h - 10.0;
+    // Fixed brand colors sourced from the palette so no raw hex lives here (§2.1);
+    // `hex_fixed` deliberately bypasses the per-theme remap — a logo reads the
+    // same in every era (the constants are `LOGO_*` in palette.rs).
+    let glow = palette::hex_fixed(palette::LOGO_BANNER_GLOW);
+    let fade = palette::hex_fixed(palette::LOGO_BANNER_GLOW_FADE);
+    let bg = palette::hex_fixed(palette::LOGO_BANNER_BG);
+    let name = palette::hex_fixed(palette::LOGO_TEXT);
+    let accent = palette::hex_fixed(palette::LOGO_TEXT_ACCENT);
     let svg = format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">
 <defs><linearGradient id="g" x1="0" y1="1" x2="0" y2="0">
-<stop offset="0" stop-color="#3a6ad0" stop-opacity="1"/>
-<stop offset="0.22" stop-color="#0a1a40" stop-opacity="0"/>
+<stop offset="0" stop-color="{glow}" stop-opacity="1"/>
+<stop offset="0.22" stop-color="{fade}" stop-opacity="0"/>
 </linearGradient></defs>
-<rect width="{w}" height="{h}" fill="#000000"/>
+<rect width="{w}" height="{h}" fill="{bg}"/>
 <rect width="{w}" height="{h}" fill="url(#g)"/>
 <text transform="translate(20,{ty}) rotate(-90)" font-family="Droid Sans" font-style="italic" font-weight="bold" text-anchor="start">
-<tspan font-size="15" fill="#ffffff">MDE Retro </tspan><tspan font-size="12" fill="#6f9fe0">Workstation</tspan>
+<tspan font-size="15" fill="{name}">MDE Retro </tspan><tspan font-size="12" fill="{accent}">Workstation</tspan>
 </text></svg>"##
     );
     iced::widget::svg(iced::widget::svg::Handle::from_memory(svg.into_bytes()))

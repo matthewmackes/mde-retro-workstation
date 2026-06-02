@@ -11,11 +11,11 @@ pub type Rgb = (u8, u8, u8);
 // --- Core Win2000 Classic colors (COLOR_* / GetSysColor defaults) ----------
 pub const BACKGROUND: Rgb = (0x3a, 0x6e, 0xa5); // desktop
 pub const ACTIVE_TITLE: Rgb = (0x0a, 0x24, 0x6a); // focused title bar / Highlight
-                                                  // Recorded ground truth, but NOT rendered by mde: sway draws title bars as a
-                                                  // flat `client.focused` color, so the navy→blue gradient caption is the known
-                                                  // casualty of the mde↔sway boundary (see ACCURACY.md §0). Kept so the value is
-                                                  // transcribed; it only returns if mde ever draws client-side title rows.
-pub const ACTIVE_TITLE_GRADIENT: Rgb = (0xa6, 0xca, 0xf0); // title gradient end (sway-owned)
+                                                  // Recorded ground truth, but NOT rendered by mde: labwc draws title bars as a
+                                                  // flat `window.active.title.bg` color, so the navy→blue gradient caption is the
+                                                  // known casualty of the mde↔labwc boundary (see ACCURACY.md §0). Kept so the
+                                                  // value is transcribed; it only returns if mde ever draws client-side title rows.
+pub const ACTIVE_TITLE_GRADIENT: Rgb = (0xa6, 0xca, 0xf0); // title gradient end (labwc-owned)
 pub const INACTIVE_TITLE: Rgb = (0x80, 0x80, 0x80);
 // (0xff,0xff,0xfe) is a SENTINEL — visually pure white in Win2000/BeOS, but a
 // distinct key so the Carbon remap can tell "white text on a colored/dark
@@ -50,7 +50,6 @@ pub const GRAY_TEXT: Rgb = (0x80, 0x80, 0x80); // disabled
 
 pub const INFO_TEXT: Rgb = (0x00, 0x00, 0x00); // tooltip
 pub const INFO_WINDOW: Rgb = (0xff, 0xff, 0xe1);
-pub const URGENT: Rgb = (0x80, 0x00, 0x00); // MDE-Retro: urgent window (maroon)
 
 // --- MDE-Retro app chrome (NOT GetSysColor) --------------------------------
 // Colors for surfaces Windows 2000 drew with bespoke art rather than a system
@@ -65,6 +64,16 @@ pub const SETUP_GRADIENT_BOTTOM: Rgb = (0x08, 0x16, 0x40);
 /// GUI Setup progress-bar fill, and the dimmed (pending/subtitle) text on it.
 pub const SETUP_PROGRESS: Rgb = (0x16, 0x3a, 0xa8);
 pub const SETUP_SUBTITLE: Rgb = (0x9e, 0xb2, 0xdb);
+/// The Start-menu side "logo banner" brand art (Win2000/Me classic): a black
+/// strip, a blue glow rising from the foot, and the rotated product name in
+/// white + light blue. These are FIXED brand colors — emitted via [`hex_fixed`]
+/// (NOT theme-remapped), since a logo reads identically in every era. §2.1 names
+/// `LOGO_*` as belonging here in `palette.rs`.
+pub const LOGO_BANNER_BG: Rgb = (0x00, 0x00, 0x00);
+pub const LOGO_BANNER_GLOW: Rgb = (0x3a, 0x6a, 0xd0);
+pub const LOGO_BANNER_GLOW_FADE: Rgb = (0x0a, 0x1a, 0x40);
+pub const LOGO_TEXT: Rgb = (0xff, 0xff, 0xff);
+pub const LOGO_TEXT_ACCENT: Rgb = (0x6f, 0x9f, 0xe0);
 
 /// The shell bar / UI Shell header surface. Identity value is the Win2000 silver
 /// taskbar face (a distinct key from `BUTTON_FACE` so the Carbon remap can paint
@@ -475,6 +484,14 @@ pub fn hex(rgb: Rgb) -> String {
         Theme::Carbon => carbon(rgb),
         Theme::Windows10 => win10(rgb),
     };
+    format!("#{:02x}{:02x}{:02x}", rgb.0, rgb.1, rgb.2)
+}
+
+/// A FIXED brand color as a `#rrggbb` string, deliberately NOT theme-remapped —
+/// for logo/brand art (the Start-menu side banner) that must read identically in
+/// every era. Keeps the hex formatting on the palette edge (§2.1) like [`hex`],
+/// but skips the per-theme remap so a logo never recolors with the active theme.
+pub fn hex_fixed(rgb: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", rgb.0, rgb.1, rgb.2)
 }
 

@@ -125,36 +125,6 @@ fn items_for(kind: &str) -> Vec<Item> {
                 command: format!("'{mde}' taskbar-properties"),
             },
         ],
-        // Desktop right-click: Refresh / New Folder / (era-routed settings).
-        // (labwc also serves its own root-menu; this is the panel-driven one.)
-        // Win10 routes the last entry to "Personalize" -> Settings; Carbon /
-        // Win2000 keep "Properties" -> Display Properties (E7.10).
-        "desktop" => {
-            let mut v = vec![
-                Item {
-                    label: "Refresh".into(),
-                    command: "labwc --reconfigure".into(),
-                },
-                sep(),
-                Item {
-                    label: "New Folder".into(),
-                    command: format!("'{mde}' files \"$HOME/Desktop\""),
-                },
-                sep(),
-            ];
-            v.push(if mde_ui::palette::is_windows10() {
-                Item {
-                    label: "Personalize".into(),
-                    command: format!("'{mde}' settings personalization"),
-                }
-            } else {
-                Item {
-                    label: "Properties".into(),
-                    command: format!("'{mde}' display"),
-                }
-            });
-            v
-        }
         // Taskbar empty-area menu. Per-window Restore/Min/Max/Close now live on
         // the labwc titlebar + its right-click client-menu, so this keeps only
         // the global actions. Win10 routes the settings entry to the Settings

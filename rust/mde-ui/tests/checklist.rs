@@ -150,6 +150,12 @@ fn app_chrome_colors_are_pinned() {
     assert_eq!(palette::SETUP_GRADIENT_TOP, (0x1c, 0x4a, 0x8f));
     assert_eq!(palette::SETUP_GRADIENT_BOTTOM, (0x08, 0x16, 0x40));
     assert_eq!(palette::SETUP_PROGRESS, (0x16, 0x3a, 0xa8));
+    // Start-menu logo banner brand art (fixed, emitted via hex_fixed).
+    assert_eq!(palette::LOGO_BANNER_BG, (0x00, 0x00, 0x00));
+    assert_eq!(palette::LOGO_BANNER_GLOW, (0x3a, 0x6a, 0xd0));
+    assert_eq!(palette::LOGO_BANNER_GLOW_FADE, (0x0a, 0x1a, 0x40));
+    assert_eq!(palette::LOGO_TEXT, (0xff, 0xff, 0xff));
+    assert_eq!(palette::LOGO_TEXT_ACCENT, (0x6f, 0x9f, 0xe0));
 }
 
 // --- Metrics ---------------------------------------------------------------
