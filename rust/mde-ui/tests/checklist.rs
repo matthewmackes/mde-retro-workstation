@@ -193,7 +193,7 @@ fn scrollbar_and_menu_rows() {
 fn ui_font_is_the_shipped_substitute() {
     assert_eq!(mde_ui::font::FAMILY, "Droid Sans"); // the family every renderer loads
     assert_eq!(metrics::UI_FONT_TARGET, "Tahoma"); // the documented ground truth
-    assert!(metrics::TITLE_FONT_BOLD);
+    const { assert!(metrics::TITLE_FONT_BOLD) }; // title bars are bold (compile-time pin)
 }
 
 /// 8pt at 96 DPI is 10.67px → 11; UI_PX is the single size the renderer uses,

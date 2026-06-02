@@ -469,11 +469,7 @@ fn render_components(f: &mut Frame, app: &App, area: Rect) {
     let h = area.height.max(1) as usize;
     let total = app.rows.len();
     // Keep the cursor in view: scroll so it sits within [start, start+h).
-    let start = if app.cursor + 1 > h {
-        app.cursor + 1 - h
-    } else {
-        0
-    };
+    let start = (app.cursor + 1).saturating_sub(h);
     let end = (start + h).min(total);
 
     let mut lines: Vec<Line> = Vec::with_capacity(end - start);

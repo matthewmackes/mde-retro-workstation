@@ -6,8 +6,8 @@
 //! Selection model (see the 10-Q spec):
 //!   * mandatory  -> always installed, shown checked + locked (bare session).
 //!   * installed  -> checked + locked (purely additive; Setup never removes).
-//!   * default_on -> the curated "Standard" preset; menus/apps the desktop
-//!                   references are on, heavyweight/niche are off.
+//!   * default_on -> the curated "Standard" preset; desktop-referenced menus/apps on, heavyweight/niche off.
+//!
 //! Checked state is otherwise derived from `rpm -q`, never persisted.
 
 use std::collections::BTreeSet;
