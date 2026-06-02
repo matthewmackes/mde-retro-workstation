@@ -153,6 +153,56 @@ pub fn proxy_mode() -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+/// Whether the Wi-Fi radio is on (`nmcli radio wifi`).
+pub fn wifi_enabled() -> bool {
+    nmcli(&["-t", "radio", "wifi"]).trim() == "enabled"
+}
+
+/// Parse `rfkill list` — airplane mode ≈ every radio soft-blocked.
+fn parse_airplane(out: &str) -> bool {
+    let soft: Vec<bool> = out
+        .lines()
+        .filter_map(|l| {
+            l.trim()
+                .strip_prefix("Soft blocked:")
+                .map(|v| v.trim() == "yes")
+        })
+        .collect();
+    !soft.is_empty() && soft.iter().all(|&b| b)
+}
+
+/// Whether airplane mode (all radios soft-blocked) is on (`rfkill list`).
+pub fn airplane_on() -> bool {
+    parse_airplane(
+        &Command::new("rfkill")
+            .arg("list")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_default(),
+    )
+}
+
+// --- action setters (consumed by the Network flyout, E15.2) -----------------
+
+/// Turn the Wi-Fi radio on/off (`nmcli radio wifi on|off`). Best-effort.
+pub fn radio_wifi(on: bool) -> bool {
+    Command::new("nmcli")
+        .args(["radio", "wifi", if on { "on" } else { "off" }])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Block/unblock all radios — airplane mode (`rfkill block|unblock all`).
+pub fn set_airplane(on: bool) -> bool {
+    Command::new("rfkill")
+        .args([if on { "block" } else { "unblock" }, "all"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// `mde __nm-list` — print the readers (the E15.1 bench hook + reachability).
 pub fn debug_list() {
     println!("Wi-Fi networks:");
@@ -173,6 +223,11 @@ pub fn debug_list() {
         println!("  {} [{}] {}", c.name, c.kind, c.state);
     }
     println!("Proxy mode: {}", proxy_mode());
+    println!(
+        "Wi-Fi radio on: {}  ·  Airplane: {}",
+        wifi_enabled(),
+        airplane_on()
+    );
 }
 
 #[cfg(test)]
@@ -206,6 +261,17 @@ mod tests {
         assert!(!w[1].secured, "empty SECURITY = open");
         assert_eq!(w[2].ssid, "Cafe:Wifi"); // escaped colon preserved
         assert_eq!(w[2].signal, 65);
+    }
+
+    #[test]
+    fn parse_airplane_needs_all_radios_blocked() {
+        let all_blocked = "0: phy0: Wireless LAN\n\tSoft blocked: yes\n\tHard blocked: no\n\
+                           1: hci0: Bluetooth\n\tSoft blocked: yes\n";
+        let one_on = "0: phy0: Wireless LAN\n\tSoft blocked: no\n\
+                      1: hci0: Bluetooth\n\tSoft blocked: yes\n";
+        assert!(parse_airplane(all_blocked));
+        assert!(!parse_airplane(one_on));
+        assert!(!parse_airplane(""), "no radios = not airplane");
     }
 
     #[test]
