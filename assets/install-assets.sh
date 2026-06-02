@@ -33,8 +33,9 @@ run_win2k() {
     echo "== Win2k icon theme =="
     # The Win2k icon installer ships alongside this script (the RPM puts both under
     # /usr/share/mde/scripts). It fetches the icon tarball, extracts it to
-    # ~/.local/share/icons/Win2k, and wires the freedesktop aliases +
-    # Inherits=Chicago95,… index.theme.
+    # ~/.local/share/icons/Win2k, and writes the freedesktop aliases + a
+    # spec-compliant index.theme (Inherits hicolor,Adwaita; Chicago95 is the
+    # de-facto base via run_chicago95 above + the icon search path).
     if [ -x "$HERE/install-win2k-icons.py" ]; then
         python3 "$HERE/install-win2k-icons.py"
     else

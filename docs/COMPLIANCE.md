@@ -146,3 +146,18 @@ The 5 stale comments the E8 work introduced, all fixed in the same commit:
 | `files.rs` module doc | "Client area" listed only classic chrome → added the Win10 command-bar + nav-pane layout |
 | `files.rs` `folder_body` doc | "Every non-QuickAccess view uses this" (false under Win10) → "Non-Win10 eras use this" |
 | `files.rs` `nav_node` doc | active node "navy" (Win10 remaps HIGHLIGHT→accent) → "accent-filled" |
+
+---
+
+# Fourth + fifth sweeps — focused (2026-06-02, workflows, adversarially verified)
+
+Two more loop-driven focused sweeps over the post-E8.4 work:
+
+- **E8.5/E8.6/E8.7** (Network pane, `mde mount`, Cloud devices): **5 raw → 0
+  confirmed** — clean (no dead code, hex, metric, state, or reachability issues).
+- **E8.9/E8.10/E8.11 + the install-assets packaging fix**: **3 raw → 1 confirmed**,
+  a single low-severity doc-drift — the `run_win2k` comment (added in the
+  install-assets fix) claimed `Inherits=Chicago95` but `install-win2k-icons.py`
+  writes `Inherits=hicolor,Adwaita` (Chicago95 is the de-facto base via the icon
+  search path, not the `Inherits` line). Fixed the comment. The packaging fix itself
+  verified sound (the `.py` ships co-located, `$HERE` resolves, all sway refs gone).
