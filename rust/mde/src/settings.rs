@@ -365,6 +365,8 @@ struct Settings {
     start_more_tiles: bool,
     start_show_recent: bool,
     start_show_suggested: bool,
+    /// Start rail system folders (E7.8a): the chosen `start_win10::START_FOLDERS` keys.
+    start_folders: Vec<String>,
     /// Taskbar location (E7.9), consumed by `panel.rs`'s Win10 anchor.
     taskbar_loc: TaskbarLoc,
     /// Lock screen (greeter) picture selection (E7.6).
@@ -398,6 +400,8 @@ enum Message {
     SetStartMore(bool),
     SetStartRecent(bool),
     SetStartSuggested(bool),
+    /// Toggle a system folder's presence in the Start rail (E7.8a).
+    ToggleStartFolder(String, bool),
     // Taskbar page (E7.9).
     SetTaskbarLoc(TaskbarLoc),
     // Lock screen page (E7.6).
@@ -520,6 +524,7 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 start_more_tiles: st.start_more_tiles,
                 start_show_recent: st.start_show_recent,
                 start_show_suggested: st.start_show_suggested,
+                start_folders: st.start_folders.clone(),
                 taskbar_loc: TaskbarLoc::from_key(&st.taskbar_location),
                 lock_selected: None,
                 installed: HashMap::new(),
@@ -592,6 +597,21 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         }
         Message::SetStartSuggested(v) => {
             state.start_show_suggested = v;
+            persist(state);
+        }
+        Message::ToggleStartFolder(key, on) => {
+            state.start_folders.retain(|k| k != &key);
+            if on {
+                state.start_folders.push(key);
+                // Keep the chosen set in the canonical START_FOLDERS order, so the
+                // rail order is stable regardless of toggle sequence.
+                state.start_folders.sort_by_key(|k| {
+                    crate::start_win10::START_FOLDERS
+                        .iter()
+                        .position(|f| f.0 == k.as_str())
+                        .unwrap_or(usize::MAX)
+                });
+            }
             persist(state);
         }
         Message::SetTaskbarLoc(loc) => {
@@ -778,6 +798,7 @@ fn persist(state: &Settings) {
     st.start_more_tiles = state.start_more_tiles;
     st.start_show_recent = state.start_show_recent;
     st.start_show_suggested = state.start_show_suggested;
+    st.start_folders = state.start_folders.clone();
     st.taskbar_location = state.taskbar_loc.key().to_string();
     let _ = crate::state::save(&st);
 }
@@ -1297,7 +1318,7 @@ fn start_page(state: &Settings) -> Element<'_, Message> {
             .spacing(8.0)
             .style(mde_ui::checkbox_style)
     };
-    Column::new()
+    let mut col = Column::new()
         .spacing(10.0)
         .push(row(
             "Show more tiles",
@@ -1315,11 +1336,31 @@ fn start_page(state: &Settings) -> Element<'_, Message> {
             Message::SetStartSuggested,
         ))
         .push(
-            text("\"Use Start full screen\" and \"Choose which folders appear\" are part of a later milestone.")
+            text("Choose which folders appear on Start")
                 .size(metrics::UI_PX)
-                .color(palette::color(palette::GRAY_TEXT)),
-        )
-        .into()
+                .font(mde_ui::font::ui_bold()),
+        );
+    // One checkbox per selectable system folder (E7.8a); toggling persists and the
+    // Start rail reflects it on next open. Closures capture the key, so these can't
+    // use the `fn(bool)`-pointer `row` helper above.
+    for entry in crate::start_win10::START_FOLDERS {
+        let key = entry.0.to_string();
+        let checked = state.start_folders.iter().any(|k| k == &key);
+        col = col.push(
+            checkbox(entry.1, checked)
+                .on_toggle(move |on| Message::ToggleStartFolder(key.clone(), on))
+                .size(metrics::UI_PX)
+                .text_size(metrics::UI_PX)
+                .spacing(8.0)
+                .style(mde_ui::checkbox_style),
+        );
+    }
+    col.push(
+        text("\"Use Start full screen\" is part of a later milestone.")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::GRAY_TEXT)),
+    )
+    .into()
 }
 
 /// Personalization ▸ Taskbar (E7.9): the location dropdown drives the panel

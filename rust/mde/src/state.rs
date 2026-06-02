@@ -119,6 +119,14 @@ fn def_quick_actions() -> Vec<String> {
     .collect()
 }
 
+/// The Start-rail system folders shown by default (the pre-E7.8a hardcoded set).
+fn def_start_folders() -> Vec<String> {
+    ["documents", "pictures", "downloads"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
 /// The persisted menu/shell state. `#[serde(default)]` on every field keeps old
 /// files loadable as new fields are added. The appearance fields default to the
 /// Carbon theme (dark, neutral icons) — see SPEC-carbon-theme.md — so explicit
@@ -183,6 +191,11 @@ pub struct MenuState {
     /// Win10 Start ▸ "Show most used apps" (the Suggested band, E7.8). Default on.
     #[serde(default = "def_true")]
     pub start_show_suggested: bool,
+    /// Win10 Start ▸ "Choose which folders appear on Start" (E7.8a): the system-
+    /// folder keys shown in the Start rail, in order (see `start_win10::START_FOLDERS`).
+    /// Unknown keys are ignored by the rail. Default = Documents, Pictures, Downloads.
+    #[serde(default = "def_start_folders")]
+    pub start_folders: Vec<String>,
     /// Win10 taskbar location: "bottom" (default) or "top" — drives the
     /// `panel.rs` layer anchor (E7.9). ("left"/"right" need a vertical bar, E7.9a.)
     #[serde(default = "def_taskbar_location")]
@@ -236,6 +249,7 @@ impl Default for MenuState {
             start_more_tiles: false,
             start_show_recent: true,
             start_show_suggested: true,
+            start_folders: def_start_folders(),
             taskbar_location: def_taskbar_location(),
             win10_show_taskview: true,
             win10_search_mode: def_search_mode(),
@@ -346,6 +360,7 @@ mod tests {
             start_more_tiles: true,
             start_show_recent: false,
             start_show_suggested: true,
+            start_folders: vec!["documents".into(), "music".into()],
             taskbar_location: "top".into(),
             win10_show_taskview: false,
             win10_search_mode: "box".into(),

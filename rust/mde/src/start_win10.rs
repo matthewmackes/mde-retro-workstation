@@ -195,9 +195,44 @@ struct Start {
     more_tiles: bool,
     show_recent: bool,
     show_suggested: bool,
+    /// The system-folder keys shown in the rail (E7.8a), in saved order.
+    folders: Vec<String>,
     /// Whether the left rail is hover-expanded to its labelled flyout (E1.4).
     rail_expanded: bool,
 }
+
+/// The system folders selectable for the Start rail ("Choose which folders appear
+/// on Start", E7.8a): (state key, label, `$HOME`-relative subdir — empty = the
+/// home folder itself, icon candidates). The chooser (settings) and the rail both
+/// drive off this one table, so they can't drift.
+pub(crate) const START_FOLDERS: &[(&str, &str, &str, &[&str])] = &[
+    (
+        "documents",
+        "Documents",
+        "Documents",
+        &["folder-documents", "user-documents"],
+    ),
+    (
+        "downloads",
+        "Downloads",
+        "Downloads",
+        &["folder-download", "user-download"],
+    ),
+    ("music", "Music", "Music", &["folder-music", "user-music"]),
+    (
+        "pictures",
+        "Pictures",
+        "Pictures",
+        &["folder-pictures", "user-pictures"],
+    ),
+    (
+        "videos",
+        "Videos",
+        "Videos",
+        &["folder-videos", "user-videos"],
+    ),
+    ("personal", "Personal folder", "", &["user-home", "folder"]),
+];
 
 #[to_layer_message]
 #[derive(Debug, Clone)]
@@ -300,6 +335,7 @@ fn launch() -> Result<(), iced_layershell::Error> {
                     more_tiles: st.start_more_tiles,
                     show_recent: st.start_show_recent,
                     show_suggested: st.start_show_suggested,
+                    folders: st.start_folders,
                     rail_expanded: false,
                 },
                 Task::none(),
@@ -440,7 +476,7 @@ fn open_in_explorer(dir: &str) {
 fn view(start: &Start) -> Element<'_, Message> {
     let regions = Row::new()
         .spacing(GAP)
-        .push(rail(start.rail_expanded))
+        .push(rail(start.rail_expanded, &start.folders))
         .push(container(center_column(start)).width(Length::Fixed(COL_W)))
         .push(
             container(tiles_view(&start.tiles, start.more_tiles))
@@ -564,7 +600,7 @@ const RAIL_EXPANDED_W: f32 = 200.0;
 /// (bottom). Always icon-only at `RAIL_W`; hovering expands it to a labelled
 /// flyout (E1.4). The Settings item opens `mde settings` — the Win10-era config
 /// route — never `mde control-panel`.
-fn rail(expanded: bool) -> Element<'static, Message> {
+fn rail(expanded: bool, folders: &[String]) -> Element<'static, Message> {
     let home = std::env::var("HOME").unwrap_or_default();
     let avatar = rail_row(&["system-users", "avatar-default"], "User", expanded, None);
     let mut col = Column::new()
@@ -575,26 +611,18 @@ fn rail(expanded: bool) -> Element<'static, Message> {
         }))
         .height(Length::Fill)
         .push(avatar);
-    // State-driven system folders (the common Win10 set); each opens File
-    // Explorer at that folder. (Choosing which folders appear is E7.8a.)
-    for (icons, label, sub) in [
-        (
-            &["folder-documents", "user-documents"][..],
-            "Documents",
-            "Documents",
-        ),
-        (
-            &["folder-pictures", "user-pictures"][..],
-            "Pictures",
-            "Pictures",
-        ),
-        (
-            &["folder-download", "user-download"][..],
-            "Downloads",
-            "Downloads",
-        ),
-    ] {
-        let dir = format!("{home}/{sub}");
+    // The user-chosen system folders (E7.8a), in their saved order; each opens
+    // File Explorer at that folder. Unknown keys (stale config) are skipped.
+    for key in folders {
+        let Some(&(_, label, sub, icons)) = START_FOLDERS.iter().find(|f| f.0 == key.as_str())
+        else {
+            continue;
+        };
+        let dir = if sub.is_empty() {
+            home.clone()
+        } else {
+            format!("{home}/{sub}")
+        };
         let cmd = format!("'{}' files '{dir}'", mde_path());
         col = col.push(rail_row(
             icons,

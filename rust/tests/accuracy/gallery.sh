@@ -135,11 +135,16 @@ for era in "carbon:carbon::0,0 1280x40" \
         printf '{"theme":"windows10","theme_mode":"dark","explorer_landing":"network"}\n' \
             > "$era_cfg/mde/menu.json"
         shot "files-win10-network" files
-        printf '{"theme":"windows10","theme_mode":"dark","pinned":[{"name":"Files","command":"mde files"},{"name":"Firefox","command":"firefox","launch_count":5},{"name":"Terminal","command":"foot"}]}\n' \
+        # A non-default start_folders set (E7.8a) so the rail visibly reflects the
+        # chosen folders (Pictures/Music/Videos/Personal), proving it consumes config.
+        printf '{"theme":"windows10","theme_mode":"dark","start_folders":["pictures","music","videos","personal"],"pinned":[{"name":"Files","command":"mde files"},{"name":"Firefox","command":"firefox","launch_count":5},{"name":"Terminal","command":"foot"}]}\n' \
             > "$era_cfg/mde/menu.json"
         "$bin" start-win10 --resize Files wide >/dev/null 2>&1
         rm -f "$RT/mde-start-win10.pid" # a stale singleton would make Start exit blank
         shot "start-win10" --wait 2.6 start-win10
+        # The Personalization ▸ Start settings page, incl. the E7.8a "Choose which
+        # folders appear on Start" chooser.
+        shot "settings-start" --wait 2.6 settings personalization --page start
         # Seed two notifications (swaync owns the live bus here, so the daemon
         # can't run) to exercise the Action Center pane grouping + Clear x's.
         now=$(date +%s)
