@@ -84,6 +84,14 @@ fn def_theme_mode() -> String {
 fn def_icon_color() -> String {
     "neutral".into()
 }
+/// The Win10 Action Center quick-action tiles, in order. The first four show
+/// collapsed; the rest appear on Expand (E3.5).
+fn def_quick_actions() -> Vec<String> {
+    ["wifi", "bluetooth", "airplane", "mute", "nightlight"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
 
 /// The persisted menu/shell state. `#[serde(default)]` on every field keeps old
 /// files loadable as new fields are added. The appearance fields default to the
@@ -119,6 +127,9 @@ pub struct MenuState {
     /// area is never blank. Garbage → empty (§2.6).
     #[serde(default)]
     pub start_tiles: Vec<StartTile>,
+    /// Win10 Action Center quick-action tile order (E3.5).
+    #[serde(default = "def_quick_actions")]
+    pub quick_actions: Vec<String>,
 }
 
 impl Default for MenuState {
@@ -131,6 +142,7 @@ impl Default for MenuState {
             theme_mode: def_theme_mode(),
             icon_color: def_icon_color(),
             start_tiles: Vec::new(),
+            quick_actions: def_quick_actions(),
         }
     }
 }
@@ -223,6 +235,7 @@ mod tests {
                 size: TileSize::Wide,
                 group: "Web".into(),
             }],
+            quick_actions: vec!["wifi".into(), "mute".into()],
         };
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(parse(&json), s);
