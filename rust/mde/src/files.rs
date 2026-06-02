@@ -32,13 +32,14 @@ struct Entry {
 /// Which view the main area shows. `Folder` is the directory listing (every
 /// era's default). Under Win10 the no-path landing is configurable
 /// (`explorer_landing`): `QuickAccess` (the default — Frequent folders + Recent
-/// files) or `ThisPc` (the known user folders + mounted drives); both are also
-/// reachable any time from the navigation pane.
+/// files), `ThisPc` (the known user folders + mounted drives), or `Network`
+/// (mounted remote locations). All are reachable any time from the nav pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
     Folder,
     QuickAccess,
     ThisPc,
+    Network,
 }
 
 struct Files {
@@ -100,9 +101,10 @@ enum Message {
     QuickContext(PathBuf),
     /// Toggle a folder's Quick access pin (`explorer_pins`) and persist it.
     TogglePin(PathBuf),
-    /// Switch the Win10 nav pane to Quick access / This PC.
+    /// Switch the Win10 nav pane to Quick access / This PC / Network.
     ShowQuick,
     ShowThisPc,
+    ShowNetwork,
     ToggleFolders,
     HeaderClick(usize),
     ToggleMenu(usize),
@@ -137,6 +139,8 @@ pub fn run(args: &[String]) -> ExitCode {
         Pane::Folder
     } else if st.explorer_landing == "thispc" {
         Pane::ThisPc
+    } else if st.explorer_landing == "network" {
+        Pane::Network
     } else {
         Pane::QuickAccess
     };
@@ -367,11 +371,21 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
             state.error = None;
         }
         Message::GoAddress => {
-            let p = PathBuf::from(&state.address);
-            if p.is_dir() {
-                state.navigate(p);
+            let addr = state.address.trim().to_string();
+            if addr.contains("://") {
+                // A remote URI (smb://, sftp://…): mount via `mde mount` (E8.6) and
+                // navigate into the local path it prints, else surface its error.
+                match mount_uri(&addr) {
+                    Ok(path) => state.navigate(path),
+                    Err(e) => state.error = Some(e),
+                }
             } else {
-                state.error = Some(format!("Cannot find '{}'.", state.address));
+                let p = PathBuf::from(&addr);
+                if p.is_dir() {
+                    state.navigate(p);
+                } else {
+                    state.error = Some(format!("Cannot find '{addr}'."));
+                }
             }
         }
         Message::ToggleMenu(i) => {
@@ -440,6 +454,7 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
         }
         Message::ShowQuick => state.pane = Pane::QuickAccess,
         Message::ShowThisPc => state.pane = Pane::ThisPc,
+        Message::ShowNetwork => state.pane = Pane::Network,
         Message::ToggleFolders => state.show_tree = !state.show_tree,
         Message::HeaderClick(col) => {
             if state.sort_col == col {
@@ -960,6 +975,15 @@ fn status_bar(state: &Files) -> Element<'_, Message> {
         Some(e) => e.clone(),
         None if state.pane == Pane::QuickAccess => "Quick access".to_string(),
         None if state.pane == Pane::ThisPc => "This PC".to_string(),
+        None if state.pane == Pane::Network => {
+            let n = network_locations().len();
+            if n == 0 {
+                "Network — no locations mounted (type smb://host/share in the Address bar)"
+                    .to_string()
+            } else {
+                format!("Network — {n} location(s)")
+            }
+        }
         None => format!("{} object(s)", state.entries.len()),
     };
     container(iced::widget::stack![
@@ -1459,6 +1483,146 @@ fn this_pc() -> Element<'static, Message> {
     .into()
 }
 
+/// `$XDG_RUNTIME_DIR/gvfs` — where GVfs exposes mounted remote locations as FUSE
+/// dirs (the same set `gio mount -l` reports).
+fn runtime_gvfs() -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR").map(|r| PathBuf::from(r).join("gvfs"))
+}
+
+/// Currently-mounted network/remote locations, as (label, path), sorted. Empty
+/// when nothing is mounted (or there is no runtime gvfs dir) — never panics.
+fn network_locations() -> Vec<(String, PathBuf)> {
+    let Some(dir) = runtime_gvfs() else {
+        return Vec::new();
+    };
+    let mut v: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .map(|p| (network_label(&p), p))
+        .collect();
+    v.sort_by_key(|x| x.0.to_lowercase());
+    v
+}
+
+/// A friendly label for a GVfs mount dir, decoding the common encodings
+/// (`smb-share:server=…,share=…` → "share on server"; `sftp:host=…` → "host
+/// (SFTP)"), else the raw entry name.
+fn network_label(p: &Path) -> String {
+    let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let field = |key: &str| {
+        name.split([',', ':'])
+            .find_map(|kv| kv.strip_prefix(key))
+            .filter(|v| !v.is_empty())
+    };
+    if let (Some(server), Some(share)) = (field("server="), field("share=")) {
+        format!("{share} on {server}")
+    } else if let Some(host) = field("host=") {
+        // sftp:host=… / dav:host=… — show the host plus its scheme.
+        let scheme = name.split(':').next().unwrap_or("");
+        if scheme.is_empty() || scheme == name {
+            host.to_string()
+        } else {
+            format!("{host} ({})", scheme.to_uppercase())
+        }
+    } else if !name.is_empty() {
+        name.to_string()
+    } else {
+        p.display().to_string()
+    }
+}
+
+/// One Network row: a remote-folder icon, the location label, and its local path.
+fn network_row(label: &str, path: &Path) -> Element<'static, Message> {
+    button(
+        Row::new()
+            .spacing(6.0)
+            .align_y(iced::Alignment::Center)
+            .push(crate::icons::icon_any(
+                &["folder-remote", "network-server", "network-workgroup"],
+                16,
+            ))
+            .push(
+                text(label.to_string())
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(5)),
+            )
+            .push(
+                text(path.display().to_string())
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(6))
+                    .color(palette::color(palette::GRAY_TEXT)),
+            ),
+    )
+    .on_press(Message::OpenPath(path.to_path_buf()))
+    .width(Length::Fill)
+    .padding(pad(2.0, 6.0, 2.0, 6.0))
+    .style(row_style(false))
+    .into()
+}
+
+/// The Network pane: the mounted remote locations (E8.5). Empty → an empty-state
+/// line directing the user to connect via the Address bar (the status bar echoes
+/// the count). Connecting is `smb://…` in the Address bar → `mde mount` → navigate.
+fn network() -> Element<'static, Message> {
+    let mut col = Column::new().spacing(0.0);
+    col = col.push(section_header("Network locations"));
+    let locs = network_locations();
+    if locs.is_empty() {
+        col = col.push(
+            container(
+                text("No network locations are mounted. Type an address such as smb://host/share in the Address bar to connect.")
+                    .size(metrics::UI_PX),
+            )
+            .padding(pad(2.0, 6.0, 2.0, 6.0)),
+        );
+    } else {
+        for (label, path) in &locs {
+            col = col.push(network_row(label, path));
+        }
+    }
+    iced::widget::stack![
+        frame::sunken().face(palette::color(palette::WINDOW)),
+        container(scrollable(col).style(mde_ui::scrollbar))
+            .padding(pad(2.0, 8.0, 2.0, 8.0))
+            .width(Length::Fill)
+            .height(Length::Fill),
+    ]
+    .into()
+}
+
+/// Mount a remote URI by spawning `mde mount <uri>` (E8.6) and returning the local
+/// path it prints, or a clean error message (its stderr, de-prefixed).
+fn mount_uri(uri: &str) -> Result<PathBuf, String> {
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
+        .unwrap_or_else(|| "mde".to_string());
+    let out = Command::new(exe)
+        .arg("mount")
+        .arg(uri)
+        .output()
+        .map_err(|e| format!("could not run mde mount: {e}"))?;
+    if out.status.success() {
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if path.is_empty() {
+            Err(format!("Mounted '{uri}' but got no path back."))
+        } else {
+            Ok(PathBuf::from(path))
+        }
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let err = err.strip_prefix("mde mount: ").unwrap_or(&err).to_string();
+        Err(if err.is_empty() {
+            format!("Could not mount '{uri}'.")
+        } else {
+            err
+        })
+    }
+}
+
 /// A Win10 nav-pane root node (Quick access / This PC): icon + bold label,
 /// accent-filled when it's the active pane.
 fn nav_node(
@@ -1526,6 +1690,12 @@ fn nav_pane(state: &Files) -> Element<'_, Message> {
         state.pane == Pane::ThisPc,
         Message::ShowThisPc,
     ));
+    col = col.push(nav_node(
+        "Network",
+        &["network-workgroup", "network-server", "folder-remote"],
+        state.pane == Pane::Network,
+        Message::ShowNetwork,
+    ));
     iced::widget::stack![
         frame::sunken().face(palette::color(palette::WINDOW)),
         container(scrollable(col).style(mde_ui::scrollbar)).padding(2.0),
@@ -1565,6 +1735,7 @@ fn view(state: &Files) -> Element<'_, Message> {
         let pane_content: Element<'_, Message> = match state.pane {
             Pane::QuickAccess => quick_access(state),
             Pane::ThisPc => this_pc(),
+            Pane::Network => network(),
             Pane::Folder => list(state),
         };
         Row::new()
@@ -1651,5 +1822,32 @@ fn view(state: &Files) -> Element<'_, Message> {
         iced::widget::stack![base, catcher, positioned].into()
     } else {
         base.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_label_decodes_gvfs_names() {
+        assert_eq!(
+            network_label(Path::new(
+                "/run/user/1000/gvfs/smb-share:server=nas,share=media"
+            )),
+            "media on nas"
+        );
+        assert_eq!(
+            network_label(Path::new(
+                "/run/user/1000/gvfs/sftp:host=server.lan,user=me"
+            )),
+            "server.lan (SFTP)"
+        );
+        assert_eq!(
+            network_label(Path::new("/run/user/1000/gvfs/dav:host=files.example")),
+            "files.example (DAV)"
+        );
+        // Unknown encoding falls back to the raw entry name (never empty, no panic).
+        assert_eq!(network_label(Path::new("/x/weird-mount")), "weird-mount");
     }
 }
