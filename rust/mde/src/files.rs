@@ -1696,9 +1696,34 @@ fn cloud_devices() -> Vec<CloudDevice> {
     list.into_iter().filter(|d| d.paired).collect()
 }
 
-/// One Cloud-device row: a phone glyph, the device name, and its sftp address.
-/// Clicking it mounts the device over sftp and browses it (E8.8); a connect error
-/// re-selects the row (highlighted) and shows the reason in the status bar.
+/// The per-device offline-mirror dir: `$XDG_CACHE_HOME/mde/cloud/<id>` (honouring
+/// the var, else `~/.cache`). E8.10 copies files down here; its presence drives the
+/// Status column (E8.9).
+fn cloud_mirror(id: &str) -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
+    Some(base.join("mde").join("cloud").join(id))
+}
+
+/// A device's offline Status (E8.9), computed from local-mirror presence:
+/// "Available offline" once its mirror holds files, else "Online-only". (The
+/// transient "Syncing" state arrives with the E8.10 copy action.)
+fn cloud_status(id: &str) -> &'static str {
+    let has_mirror = cloud_mirror(id)
+        .and_then(|p| std::fs::read_dir(p).ok())
+        .map(|mut rd| rd.next().is_some())
+        .unwrap_or(false);
+    if has_mirror {
+        "Available offline"
+    } else {
+        "Online-only"
+    }
+}
+
+/// One Cloud-device row: a phone glyph, the device name, its sftp address, and its
+/// offline Status (E8.9). Clicking it mounts the device over sftp and browses it
+/// (E8.8); a connect error re-selects the row and shows the reason in the status bar.
 fn cloud_row(d: &CloudDevice, selected: bool) -> Element<'static, Message> {
     button(
         Row::new()
@@ -1711,7 +1736,7 @@ fn cloud_row(d: &CloudDevice, selected: bool) -> Element<'static, Message> {
             .push(
                 text(d.name.clone())
                     .size(metrics::UI_PX)
-                    .width(Length::FillPortion(5)),
+                    .width(Length::FillPortion(4)),
             )
             .push(
                 text(if d.address.is_empty() {
@@ -1720,8 +1745,14 @@ fn cloud_row(d: &CloudDevice, selected: bool) -> Element<'static, Message> {
                     d.address.clone()
                 })
                 .size(metrics::UI_PX)
-                .width(Length::FillPortion(6))
+                .width(Length::FillPortion(4))
                 .color(palette::color(palette::GRAY_TEXT)),
+            )
+            .push(
+                text(cloud_status(&d.id))
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(3))
+                    .color(palette::color(palette::GRAY_TEXT)),
             ),
     )
     .on_press(Message::MountCloud(d.id.clone()))
