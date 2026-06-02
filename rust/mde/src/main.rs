@@ -119,6 +119,12 @@ fn main() -> ExitCode {
         "panel" => panel::run(rest),
         "menu" => menu::run(rest),
         "start-win10" => start_win10::run(rest),
+        // Per-era Start dispatcher for the labwc keybind: opens the right Start
+        // for the active theme (the startup block above already set it).
+        "start" => {
+            start_common::mde_self(start_common::active_start_cmd());
+            ExitCode::SUCCESS
+        }
         "popup" => popup::run(rest),
         "files" => files::run(rest),
         "control-panel" => control_panel::run(rest),

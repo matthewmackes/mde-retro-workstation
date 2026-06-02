@@ -35,8 +35,8 @@
     <keybind key="A-S-Tab"><action name="PreviousWindow"/></keybind>
 
     <!-- Shell launchers (the old sway bindings). -->
-    <keybind key="W-d"><action name="Execute"><command>mde menu</command></action></keybind>
-    <keybind key="C-Escape"><action name="Execute"><command>mde menu</command></action></keybind>
+    <keybind key="W-d"><action name="Execute"><command>mde start</command></action></keybind>
+    <keybind key="C-Escape"><action name="Execute"><command>mde start</command></action></keybind>
     <keybind key="W-e"><action name="Execute"><command>mde files</command></action></keybind>
     <keybind key="W-r"><action name="Execute"><command>mde run</command></action></keybind>
     <keybind key="W-Return"><action name="Execute"><command>foot</command></action></keybind>

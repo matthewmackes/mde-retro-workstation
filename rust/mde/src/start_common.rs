@@ -36,6 +36,22 @@ pub fn mde_self(sub: &str) {
     }
 }
 
+/// The Start subcommand for the active era: the Win10 tiled Start under the
+/// Windows 10 theme, else the Carbon/Win2000 cascade menu. The ONE place the
+/// per-era choice lives, so the panel Start button and the `mde start` keybind
+/// dispatcher always agree (D1: Carbon/Win2000 keep `mde menu`).
+pub fn active_start_cmd() -> &'static str {
+    start_cmd_for(palette::is_windows10())
+}
+
+fn start_cmd_for(is_windows10: bool) -> &'static str {
+    if is_windows10 {
+        "start-win10"
+    } else {
+        "menu"
+    }
+}
+
 /// Single-instance guard via a pid file `<XDG_RUNTIME_DIR>/<basename>.pid`: if it
 /// names a still-live process (`/proc/<pid>`), the slot is taken. A stale file
 /// (the previous surface exited via `exit(0)`, which skips cleanup) is harmless —
@@ -112,5 +128,17 @@ pub fn tile_style() -> impl Fn(&iced::Theme, button::Status) -> button::Style {
             },
             shadow: Shadow::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_cmd_routes_per_era() {
+        // E1.11: Windows 10 era → the tiled Start; everything else → the cascade menu.
+        assert_eq!(start_cmd_for(true), "start-win10");
+        assert_eq!(start_cmd_for(false), "menu");
     }
 }

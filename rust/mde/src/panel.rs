@@ -252,9 +252,9 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
                     let _ = child.wait();
                 }
                 // Already exited → reopen.
-                _ => state.menu = spawn_child(&["menu"]),
+                _ => state.menu = spawn_child(&[crate::start_common::active_start_cmd()]),
             },
-            None => state.menu = spawn_child(&["menu"]),
+            None => state.menu = spawn_child(&[crate::start_common::active_start_cmd()]),
         },
         Message::StartContext => push_child(state, spawn_child(&["popup", "start"])),
         Message::TaskbarContext => push_child(state, spawn_child(&["popup", "taskbar"])),
