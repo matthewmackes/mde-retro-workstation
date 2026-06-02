@@ -130,6 +130,11 @@ for era in "carbon:carbon::0,0 1280x40" \
         # The Win10 Explorer no-path landing: Quick access + the left nav pane (This
         # PC / Network / Cloud Files), distinct from the files-$label folder view (E8).
         shot "files-win10-quick" files
+        # The Win10 Explorer Network pane with the E8.5a "Browse a server" box above
+        # the mounted locations. explorer_landing=network lands files there directly.
+        printf '{"theme":"windows10","theme_mode":"dark","explorer_landing":"network"}\n' \
+            > "$era_cfg/mde/menu.json"
+        shot "files-win10-network" files
         printf '{"theme":"windows10","theme_mode":"dark","pinned":[{"name":"Files","command":"mde files"},{"name":"Firefox","command":"firefox","launch_count":5},{"name":"Terminal","command":"foot"}]}\n' \
             > "$era_cfg/mde/menu.json"
         "$bin" start-win10 --resize Files wide >/dev/null 2>&1

@@ -87,6 +87,12 @@ struct Files {
     cloud_device: Option<String>,
     /// The Cloud device whose right-click offline menu is open, if any (E8.10).
     cloud_ctx: Option<String>,
+    /// Network pane SMB browse (E8.5a): the server typed into the browse box, the
+    /// Disk shares `smbclient -L` last returned for it, and whether a browse is in
+    /// flight (the button then reads "Browsing…").
+    net_host: String,
+    net_shares: Vec<String>,
+    net_busy: bool,
 }
 
 /// The menubar titles (indices used by `open_menu` / ToggleMenu).
@@ -115,6 +121,13 @@ enum Message {
     ShowQuick,
     ShowThisPc,
     ShowNetwork,
+    /// Network pane SMB browse (E8.5a): edit the server box, run the browse, and
+    /// receive the parsed Disk shares (or an error). `OpenShare` mounts a listed
+    /// share's `smb://host/share` via the shared off-thread mount flow.
+    NetHostChanged(String),
+    NetBrowse,
+    NetBrowsed(Result<Vec<String>, String>),
+    OpenShare(String),
     /// Show the Cloud devices pane (the paired-device list).
     ShowCloud,
     /// Mount a paired device over sftp and browse it (E8.8); on failure it selects
@@ -218,6 +231,9 @@ fn launch(start: PathBuf, pane: Pane, pins: Vec<PathBuf>) -> iced::Result {
                 qctx: None,
                 cloud_device: None,
                 cloud_ctx: None,
+                net_host: String::new(),
+                net_shares: Vec::new(),
+                net_busy: false,
             };
             f.load();
             (f, Task::none())
@@ -493,6 +509,38 @@ fn update(state: &mut Files, message: Message) -> Task<Message> {
         Message::ShowQuick => state.pane = Pane::QuickAccess,
         Message::ShowThisPc => state.pane = Pane::ThisPc,
         Message::ShowNetwork => state.pane = Pane::Network,
+        Message::NetHostChanged(s) => state.net_host = s,
+        Message::NetBrowse => {
+            let host = state.net_host.trim().to_string();
+            if !host.is_empty() {
+                state.net_busy = true;
+                state.net_shares.clear();
+                state.error = Some(format!("Browsing \\\\{host}…"));
+                return browse_task(host);
+            }
+        }
+        Message::NetBrowsed(result) => {
+            state.net_busy = false;
+            match result {
+                Ok(shares) => {
+                    state.error = if shares.is_empty() {
+                        Some(format!("No shares found on '{}'.", state.net_host.trim()))
+                    } else {
+                        None
+                    };
+                    state.net_shares = shares;
+                }
+                Err(e) => {
+                    state.net_shares.clear();
+                    state.error = Some(e);
+                }
+            }
+        }
+        Message::OpenShare(uri) => {
+            // A discovered share carries its full smb:// URI; mount it off-thread.
+            state.error = Some(format!("Connecting to {uri}…"));
+            return mount_task(uri, None);
+        }
         Message::ShowCloud => {
             state.cloud_device = None;
             state.pane = Pane::CloudDevice;
@@ -1115,9 +1163,11 @@ fn status_bar(state: &Files) -> Element<'_, Message> {
         None if state.pane == Pane::ThisPc => "This PC".to_string(),
         None if state.pane == Pane::Network => {
             let n = network_locations().len();
-            if n == 0 {
-                "Network — no locations mounted (type smb://host/share in the Address bar)"
-                    .to_string()
+            let shares = state.net_shares.len();
+            if shares > 0 {
+                format!("Network — {shares} share(s) on {}", state.net_host.trim())
+            } else if n == 0 {
+                "Network — browse a server, or type smb://host/share in the Address bar".to_string()
             } else {
                 format!("Network — {n} location(s)")
             }
@@ -1387,9 +1437,9 @@ fn recent_files(roots: &[PathBuf]) -> Vec<PathBuf> {
 
 /// A Quick access section header. The one larger size (INFO_TITLE_PX) is reserved
 /// for the web-view band, so headers use the standard UI size in bold.
-fn section_header(label: &'static str) -> Element<'static, Message> {
+fn section_header(label: &str) -> Element<'static, Message> {
     container(
-        text(label)
+        text(label.to_string())
             .size(metrics::UI_PX)
             .font(mde_ui::font::ui_bold()),
     )
@@ -1718,17 +1768,92 @@ fn network_row(label: &str, path: &Path) -> Element<'static, Message> {
     .into()
 }
 
-/// The Network pane: the mounted remote locations (E8.5). Empty → an empty-state
-/// line directing the user to connect via the Address bar (the status bar echoes
-/// the count). Connecting is `smb://…` in the Address bar → `mde mount` → navigate.
-fn network() -> Element<'static, Message> {
+/// One discovered SMB share row (E8.5a): the share name + its `\\host\share` UNC
+/// label; clicking it mounts the carried `smb://host/share` URI off-thread.
+fn share_row(host: &str, share: &str) -> Element<'static, Message> {
+    let unc = format!("\\\\{host}\\{share}");
+    let uri = format!("smb://{host}/{share}");
+    button(
+        Row::new()
+            .spacing(6.0)
+            .align_y(iced::Alignment::Center)
+            .push(crate::icons::icon_any(
+                &["folder-remote", "network-server", "network-workgroup"],
+                16,
+            ))
+            .push(
+                text(share.to_string())
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(5)),
+            )
+            .push(
+                text(unc)
+                    .size(metrics::UI_PX)
+                    .width(Length::FillPortion(6))
+                    .color(palette::color(palette::GRAY_TEXT)),
+            ),
+    )
+    .on_press(Message::OpenShare(uri))
+    .width(Length::Fill)
+    .padding(pad(2.0, 6.0, 2.0, 6.0))
+    .style(row_style(false))
+    .into()
+}
+
+/// The Network pane: a "browse a server" box (E8.5a) that lists an SMB host's
+/// shares via `smbclient -L`, above the already-mounted remote locations (E8.5).
+/// Typing a server + Browse lists its shares as rows that mount on click; the
+/// Address bar `smb://…` route still works too. Empty mounts → an empty-state line.
+fn network(state: &Files) -> Element<'_, Message> {
     let mut col = Column::new().spacing(0.0);
+
+    // Browse box: enter a server name/IP, list its shares (E8.5a).
+    col = col.push(section_header("Browse a server"));
+    let browse_label = if state.net_busy {
+        "Browsing…"
+    } else {
+        "Browse"
+    };
+    col = col.push(
+        container(
+            Row::new()
+                .spacing(6.0)
+                .align_y(iced::Alignment::Center)
+                .push(
+                    text_input("Server name or IP (e.g. fileserver)", &state.net_host)
+                        .on_input(Message::NetHostChanged)
+                        .on_submit(Message::NetBrowse)
+                        .size(metrics::UI_PX)
+                        .width(Length::FillPortion(5)),
+                )
+                .push(
+                    button(text(browse_label).size(metrics::UI_PX))
+                        .on_press(Message::NetBrowse)
+                        .padding(pad(2.0, 10.0, 2.0, 10.0))
+                        .style(row_style(false)),
+                ),
+        )
+        .padding(pad(4.0, 6.0, 4.0, 6.0)),
+    );
+
+    // The shares the last browse returned, if any.
+    if !state.net_shares.is_empty() {
+        col = col.push(section_header(&format!(
+            "Shares on {}",
+            state.net_host.trim()
+        )));
+        for share in &state.net_shares {
+            col = col.push(share_row(state.net_host.trim(), share));
+        }
+    }
+
+    // The already-mounted remote locations (E8.5).
     col = col.push(section_header("Network locations"));
     let locs = network_locations();
     if locs.is_empty() {
         col = col.push(
             container(
-                text("No network locations are mounted. Type an address such as smb://host/share in the Address bar to connect.")
+                text("No network locations are mounted. Browse a server above, or type an address such as smb://host/share in the Address bar.")
                     .size(metrics::UI_PX),
             )
             .padding(pad(2.0, 6.0, 2.0, 6.0)),
@@ -1763,6 +1888,87 @@ fn mount_task(uri: String, cloud_id: Option<String>) -> Task<Message> {
         },
         |(result, cloud_id)| Message::MountDone { result, cloud_id },
     )
+}
+
+/// Browse an SMB server's shares off the UI thread (E8.5a): runs `smbclient -L`
+/// on tokio's blocking pool and delivers the parsed Disk shares (or a clean
+/// error) as [`Message::NetBrowsed`], so a slow/unreachable server never freezes
+/// the file manager.
+fn browse_task(host: String) -> Task<Message> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || smb_shares(&host))
+                .await
+                .unwrap_or_else(|e| Err(format!("browse task failed: {e}")))
+        },
+        Message::NetBrowsed,
+    )
+}
+
+/// List an SMB server's Disk shares with `smbclient -L <host> -N` (guest, no
+/// prompt), bounded by `timeout` so an unreachable server fails in seconds.
+/// Returns the share names, or a readable error when nothing could be listed.
+fn smb_shares(host: &str) -> Result<Vec<String>, String> {
+    let out = Command::new("timeout")
+        .args(["12", "smbclient", "-L", host, "-N"])
+        .output()
+        .map_err(|e| format!("could not run smbclient: {e}"))?;
+    // smbclient may exit non-zero yet still print a guest-listable share table, so
+    // always parse stdout first and only synthesize an error when it's empty.
+    let shares = parse_smb_shares(&String::from_utf8_lossy(&out.stdout));
+    if !shares.is_empty() {
+        return Ok(shares);
+    }
+    if out.status.code() == Some(124) {
+        return Err(format!("Browsing '{host}' timed out."));
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let line = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+    if out.status.code() == Some(127) || line.contains("not found") {
+        Err("smbclient is not installed.".to_string())
+    } else if line.trim().is_empty() {
+        Err(format!("No shares found on '{host}'."))
+    } else {
+        Err(line.trim().to_string())
+    }
+}
+
+/// Extract the Disk share names from `smbclient -L` output. The table is:
+/// ```text
+///         Sharename       Type      Comment
+///         ---------       ----      -------
+///         public          Disk      Public files
+///         IPC$            IPC       IPC Service
+/// ```
+/// Take the first column of each row whose Type is `Disk`, dropping the `IPC$` /
+/// `print$` administrative shares. Stops at the blank line that ends the table.
+fn parse_smb_shares(output: &str) -> Vec<String> {
+    let mut shares = Vec::new();
+    let mut in_table = false;
+    for line in output.lines() {
+        let t = line.trim();
+        if t.starts_with("Sharename") {
+            in_table = true;
+            continue;
+        }
+        if !in_table {
+            continue;
+        }
+        if t.is_empty() {
+            break; // the share table ends at the first blank line
+        }
+        if t.starts_with("---") {
+            continue;
+        }
+        let mut cols = t.split_whitespace();
+        let (Some(name), Some(kind)) = (cols.next(), cols.next()) else {
+            continue;
+        };
+        if kind == "Disk" && name != "IPC$" && name != "print$" {
+            shares.push(name.to_string());
+        }
+    }
+    shares
 }
 
 /// Mount a remote URI by spawning `mde mount <uri>` (E8.6) and returning the local
@@ -2105,7 +2311,7 @@ fn view(state: &Files) -> Element<'_, Message> {
         let pane_content: Element<'_, Message> = match state.pane {
             Pane::QuickAccess => quick_access(state),
             Pane::ThisPc => this_pc(),
-            Pane::Network => network(),
+            Pane::Network => network(state),
             Pane::CloudDevice => cloud_pane(state),
             Pane::Folder => list(state),
         };
@@ -2211,6 +2417,35 @@ fn view(state: &Files) -> Element<'_, Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_smb_shares_takes_disk_shares_only() {
+        // A representative `smbclient -L host -N` listing.
+        let out = "\
+Anonymous login successful
+
+\tSharename       Type      Comment
+\t---------       ----      -------
+\tpublic          Disk      Public files
+\tmedia           Disk      Movies & music
+\tIPC$            IPC       IPC Service (server)
+\tprint$          Disk      Printer Drivers
+
+\tServer               Comment
+\t---------            -------
+\tFILESERVER           Samba
+";
+        let shares = parse_smb_shares(out);
+        // Disk shares kept in order; IPC$/print$ admin shares dropped; the Server
+        // section after the blank line is not mistaken for shares.
+        assert_eq!(shares, vec!["public".to_string(), "media".to_string()]);
+    }
+
+    #[test]
+    fn parse_smb_shares_handles_no_table() {
+        assert!(parse_smb_shares("session setup failed: NT_STATUS_ACCESS_DENIED").is_empty());
+        assert!(parse_smb_shares("").is_empty());
+    }
 
     #[test]
     fn search_filter_is_case_insensitive_substring() {
