@@ -34,6 +34,9 @@ pub struct Workspace {
     pub id: u64,
     pub name: String,
     pub active: bool,
+    /// The compositor advertised the `remove` capability for this workspace.
+    /// labwc (static `<desktops>`) does not, so Task View hides the × there.
+    pub removable: bool,
 }
 
 /// A handle Task View keeps: read the workspace snapshot and drive switching,
@@ -45,6 +48,7 @@ pub struct Workspaces {
     handles: Arc<Mutex<HashMap<u64, ExtWorkspaceHandleV1>>>,
     manager: Arc<Mutex<Option<ExtWorkspaceManagerV1>>>,
     group: Arc<Mutex<Option<ExtWorkspaceGroupHandleV1>>>,
+    can_create: Arc<Mutex<bool>>,
     conn: Connection,
 }
 
@@ -52,6 +56,13 @@ impl Workspaces {
     /// The current workspace snapshot (creation-ordered).
     pub fn list(&self) -> Vec<Workspace> {
         self.list.lock().map(|v| v.clone()).unwrap_or_default()
+    }
+
+    /// Whether the compositor's group advertised the `create_workspace`
+    /// capability. labwc (static `<desktops>`) does not, so Task View hides the
+    /// "+ New desktop" chip there rather than offering a dead button.
+    pub fn can_create(&self) -> bool {
+        self.can_create.lock().map(|b| *b).unwrap_or(false)
     }
 
     fn handle(&self, id: u64) -> Option<ExtWorkspaceHandleV1> {
@@ -80,8 +91,11 @@ impl Workspaces {
     }
 
     /// Create a new workspace (named) in the first group, if the compositor
-    /// allows it. A no-op when no group has advertised `create_workspace`.
+    /// advertised the capability. A no-op otherwise (e.g. labwc).
     pub fn create(&self, name: &str) {
+        if !self.can_create() {
+            return;
+        }
         let group = self.group.lock().ok().and_then(|g| g.clone());
         if let Some(g) = group {
             g.create_workspace(name.to_string());
@@ -112,11 +126,13 @@ pub fn start() -> Option<Workspaces> {
     let handles = Arc::new(Mutex::new(HashMap::new()));
     let manager = Arc::new(Mutex::new(None));
     let group = Arc::new(Mutex::new(None));
+    let can_create = Arc::new(Mutex::new(false));
     let ws = Workspaces {
         list: list.clone(),
         handles: handles.clone(),
         manager: manager.clone(),
         group: group.clone(),
+        can_create: can_create.clone(),
         conn: conn.clone(),
     };
     // Probe synchronously for the manager global so a missing protocol returns
@@ -126,7 +142,7 @@ pub fn start() -> Option<Workspaces> {
         return None;
     }
     thread::spawn(move || {
-        if let Err(e) = serve(conn, list, handles, manager, group) {
+        if let Err(e) = serve(conn, list, handles, manager, group, can_create) {
             eprintln!("mde workspace: {e}");
         }
     });
@@ -169,9 +185,11 @@ struct WsItem {
     id: u64,
     name: String,
     active: bool,
+    removable: bool,
     p_name: String,
     p_id_str: String,
     p_active: bool,
+    p_removable: bool,
 }
 
 impl WsItem {
@@ -180,9 +198,11 @@ impl WsItem {
             id,
             name: String::new(),
             active: false,
+            removable: false,
             p_name: String::new(),
             p_id_str: String::new(),
             p_active: false,
+            p_removable: false,
         }
     }
     fn commit(&mut self) {
@@ -193,6 +213,7 @@ impl WsItem {
             self.p_name.clone()
         };
         self.active = self.p_active;
+        self.removable = self.p_removable;
     }
 }
 
@@ -202,6 +223,7 @@ struct AppState {
     out: Arc<Mutex<Vec<Workspace>>>,
     handles: Arc<Mutex<HashMap<u64, ExtWorkspaceHandleV1>>>,
     group_shared: Arc<Mutex<Option<ExtWorkspaceGroupHandleV1>>>,
+    can_create_shared: Arc<Mutex<bool>>,
     // The manager proxy, captured in the registry Dispatch and lifted into the
     // shared slot after the first roundtrip so request methods can `commit`.
     bound_manager: Option<ExtWorkspaceManagerV1>,
@@ -217,6 +239,7 @@ impl AppState {
                 id: it.id,
                 name: it.name.clone(),
                 active: it.active,
+                removable: it.removable,
             })
             .collect();
         v.sort_by_key(|w| w.id);
@@ -232,6 +255,7 @@ fn serve(
     handles: Arc<Mutex<HashMap<u64, ExtWorkspaceHandleV1>>>,
     manager: Arc<Mutex<Option<ExtWorkspaceManagerV1>>>,
     group: Arc<Mutex<Option<ExtWorkspaceGroupHandleV1>>>,
+    can_create: Arc<Mutex<bool>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut queue = conn.new_event_queue::<AppState>();
     let qh = queue.handle();
@@ -242,6 +266,7 @@ fn serve(
         out: list,
         handles,
         group_shared: group,
+        can_create_shared: can_create,
         bound_manager: None,
     };
     // First roundtrip binds the manager; stash it so request methods can commit.
@@ -324,15 +349,23 @@ impl Dispatch<ExtWorkspaceManagerV1, ()> for AppState {
 
 impl Dispatch<ExtWorkspaceGroupHandleV1, ()> for AppState {
     fn event(
-        _: &mut Self,
+        state: &mut Self,
         _: &ExtWorkspaceGroupHandleV1,
-        _: grp::Event,
+        event: grp::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        // Group capabilities / output / workspace-membership events don't affect
-        // the flat snapshot the band needs.
+        // The only group event the band cares about: whether clients may create
+        // workspaces. (output / workspace-membership events don't affect the
+        // flat snapshot.)
+        if let grp::Event::Capabilities { capabilities } = event {
+            let can = matches!(capabilities,
+                WEnum::Value(c) if c.contains(grp::GroupCapabilities::CreateWorkspace));
+            if let Ok(mut b) = state.can_create_shared.lock() {
+                *b = can;
+            }
+        }
     }
 }
 
@@ -362,6 +395,12 @@ impl Dispatch<ExtWorkspaceHandleV1, ()> for AppState {
                     it.p_active = matches!(bits, WEnum::Value(s) if s.contains(wsh::State::Active));
                 }
             }
+            wsh::Event::Capabilities { capabilities } => {
+                if let Some(it) = state.items.get_mut(&oid) {
+                    it.p_removable = matches!(capabilities,
+                        WEnum::Value(c) if c.contains(wsh::WorkspaceCapabilities::Remove));
+                }
+            }
             wsh::Event::Removed => {
                 if let Some(it) = state.items.remove(&oid) {
                     if let Ok(mut h) = state.handles.lock() {
@@ -381,18 +420,42 @@ impl Dispatch<ExtWorkspaceHandleV1, ()> for AppState {
     }
 }
 
+/// Briefly run the client so the initial workspace snapshot arrives, returning
+/// the live handle (or `None` if the compositor has no ext-workspace).
+fn settled() -> Option<Workspaces> {
+    let ws = start()?;
+    thread::sleep(std::time::Duration::from_millis(400));
+    Some(ws)
+}
+
+/// `mde __ws-activate <id>` — switch to a workspace by its mde id and exit (a
+/// smoke test that the ext-workspace `activate` request reaches the compositor;
+/// the switch persists after this process exits).
+pub fn debug_activate(id: u64) {
+    if let Some(ws) = settled() {
+        ws.activate(id);
+        thread::sleep(std::time::Duration::from_millis(250));
+    } else {
+        eprintln!("mde __ws-activate: no ext-workspace-v1 support");
+    }
+}
+
 /// `mde __ws-list` — headless: list the live workspaces and exit (a smoke test
 /// for the ext-workspace client against the running compositor).
 pub fn debug_list() {
     match start() {
         Some(ws) => {
             thread::sleep(std::time::Duration::from_millis(500));
+            println!("can_create={}", ws.can_create());
             let list = ws.list();
             if list.is_empty() {
                 println!("(no workspaces reported)");
             }
             for w in list {
-                println!("[{}] {:<24} active={}", w.id, w.name, w.active);
+                println!(
+                    "[{}] {:<24} active={} removable={}",
+                    w.id, w.name, w.active, w.removable
+                );
             }
         }
         None => eprintln!("no wayland display / no ext-workspace-v1 support"),

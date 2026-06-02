@@ -154,6 +154,12 @@ fn main() -> ExitCode {
             workspace::debug_list();
             ExitCode::SUCCESS
         }
+        "__ws-activate" => {
+            if let Some(id) = rest.first().and_then(|s| s.parse().ok()) {
+                workspace::debug_activate(id);
+            }
+            ExitCode::SUCCESS
+        }
         "logoff" => dialogs::logoff(),
         "shutdown" => dialogs::shutdown(),
         "setup" => installer::dispatch(rest),

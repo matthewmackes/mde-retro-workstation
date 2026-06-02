@@ -216,7 +216,10 @@ fn view(state: &TaskView) -> Element<'_, Message> {
 ///   3. neither → no band (single-desktop grid).
 fn band(state: &TaskView) -> Element<'_, Message> {
     if !state.workspaces.is_empty() {
-        desktop_band(&state.workspaces)
+        // Only offer "+ New desktop" when the compositor advertises it (labwc's
+        // static desktops don't), so the chip is never a dead button.
+        let can_create = state.ws.as_ref().map(|w| w.can_create()).unwrap_or(false);
+        desktop_band(&state.workspaces, can_create)
     } else if state.fixed_desktops > 1 {
         fixed_desktop_band(state.fixed_desktops)
     } else {
@@ -267,8 +270,9 @@ fn fixed_desktop_band<'a>(n: u32) -> Element<'a, Message> {
 }
 
 /// The virtual-desktop band: a centered row of workspace chips (the active one
-/// accent-filled, each with a remove ×) plus a trailing "+ New desktop" chip.
-fn desktop_band(workspaces: &[workspace::Workspace]) -> Element<'_, Message> {
+/// accent-filled, each with a remove × when the workspace is removable) plus a
+/// trailing "+ New desktop" chip when the compositor supports creation.
+fn desktop_band(workspaces: &[workspace::Workspace], can_create: bool) -> Element<'_, Message> {
     if workspaces.is_empty() {
         return Space::new(Length::Fill, Length::Shrink).into();
     }
@@ -276,7 +280,9 @@ fn desktop_band(workspaces: &[workspace::Workspace]) -> Element<'_, Message> {
     for w in workspaces {
         row = row.push(ws_chip(w));
     }
-    row = row.push(new_ws_chip());
+    if can_create {
+        row = row.push(new_ws_chip());
+    }
     container(row)
         .width(Length::Fill)
         .align_x(Horizontal::Center)
@@ -284,8 +290,10 @@ fn desktop_band(workspaces: &[workspace::Workspace]) -> Element<'_, Message> {
         .into()
 }
 
-/// One workspace chip: name + a remove ×; accent-filled when it's the active
-/// desktop. Clicking the chip switches to it; clicking the × removes it.
+/// One workspace chip: name + (when removable) a remove ×; accent-filled when
+/// it's the active desktop. Clicking the chip switches to it; clicking the ×
+/// removes it. The × is omitted on compositors that don't advertise `remove`
+/// (e.g. labwc) so it's never a dead control.
 fn ws_chip(w: &workspace::Workspace) -> Element<'_, Message> {
     let (bg, fg) = if w.active {
         (palette::accent(), palette::color(palette::HIGHLIGHT_TEXT))
@@ -296,13 +304,16 @@ fn ws_chip(w: &workspace::Workspace) -> Element<'_, Message> {
         )
     };
     let label = text(w.name.clone()).size(metrics::UI_PX).color(fg);
-    let close = mouse_area(text("\u{2715}").size(metrics::UI_PX).color(fg))
-        .on_press(Message::RemoveWs(w.id));
-    let inner = Row::new()
+    let mut inner = Row::new()
         .spacing(8.0)
         .align_y(Vertical::Center)
-        .push(label)
-        .push(close);
+        .push(label);
+    if w.removable {
+        inner = inner.push(
+            mouse_area(text("\u{2715}").size(metrics::UI_PX).color(fg))
+                .on_press(Message::RemoveWs(w.id)),
+        );
+    }
     mouse_area(
         container(inner)
             .padding(Padding::from([6.0, 12.0]))
