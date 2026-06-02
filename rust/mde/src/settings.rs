@@ -71,6 +71,42 @@ impl std::fmt::Display for TaskbarLoc {
         })
     }
 }
+
+/// Win10 taskbar search affordance (E7.9a): a magnifier button, a wider "Search"
+/// pill, or nothing — persisted as `win10_search_mode`, already consumed by
+/// `panel.rs` (`win10_search_affordance`, E2.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchMode {
+    Button,
+    Box,
+    Hidden,
+}
+impl SearchMode {
+    const ALL: [SearchMode; 3] = [SearchMode::Button, SearchMode::Box, SearchMode::Hidden];
+    fn key(self) -> &'static str {
+        match self {
+            SearchMode::Button => "button",
+            SearchMode::Box => "box",
+            SearchMode::Hidden => "hidden",
+        }
+    }
+    fn from_key(k: &str) -> Self {
+        match k {
+            "box" => SearchMode::Box,
+            "hidden" => SearchMode::Hidden,
+            _ => SearchMode::Button,
+        }
+    }
+}
+impl std::fmt::Display for SearchMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            SearchMode::Button => "Search button",
+            SearchMode::Box => "Search box",
+            SearchMode::Hidden => "Hidden",
+        })
+    }
+}
 impl std::fmt::Display for BgSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -371,6 +407,9 @@ struct Settings {
     start_folders: Vec<String>,
     /// Taskbar location (E7.9), consumed by `panel.rs`'s Win10 anchor.
     taskbar_loc: TaskbarLoc,
+    /// Win10 taskbar search affordance + Task-View button (E7.9a), consumed by panel.rs.
+    search_mode: SearchMode,
+    show_taskview: bool,
     /// Lock screen (greeter) picture selection (E7.6).
     lock_selected: Option<usize>,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
@@ -407,6 +446,8 @@ enum Message {
     ToggleStartFolder(String, bool),
     // Taskbar page (E7.9).
     SetTaskbarLoc(TaskbarLoc),
+    SetSearchMode(SearchMode),
+    SetShowTaskview(bool),
     // Lock screen page (E7.6).
     LockSelect(usize),
     LockBrowse,
@@ -530,6 +571,8 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 start_show_suggested: st.start_show_suggested,
                 start_folders: st.start_folders.clone(),
                 taskbar_loc: TaskbarLoc::from_key(&st.taskbar_location),
+                search_mode: SearchMode::from_key(&st.win10_search_mode),
+                show_taskview: st.win10_show_taskview,
                 lock_selected: None,
                 installed: HashMap::new(),
             };
@@ -619,6 +662,14 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         }
         Message::SetTaskbarLoc(loc) => {
             state.taskbar_loc = loc;
+            persist(state);
+        }
+        Message::SetSearchMode(m) => {
+            state.search_mode = m;
+            persist(state);
+        }
+        Message::SetShowTaskview(v) => {
+            state.show_taskview = v;
             persist(state);
         }
         Message::LockSelect(i) => state.lock_selected = Some(i),
@@ -803,6 +854,8 @@ fn persist(state: &Settings) {
     st.start_show_suggested = state.start_show_suggested;
     st.start_folders = state.start_folders.clone();
     st.taskbar_location = state.taskbar_loc.key().to_string();
+    st.win10_search_mode = state.search_mode.key().to_string();
+    st.win10_show_taskview = state.show_taskview;
     let _ = crate::state::save(&st);
 }
 
@@ -1371,6 +1424,23 @@ fn taskbar_page(state: &Settings) -> Element<'_, Message> {
             )
             .text_size(metrics::UI_PX),
         );
+    // Search affordance picker (E7.9a) — drives panel.rs's win10_search_affordance.
+    let search = Row::new()
+        .spacing(8.0)
+        .align_y(iced::alignment::Vertical::Center)
+        .push(
+            text("Search on the taskbar")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(
+            pick_list(
+                SearchMode::ALL.to_vec(),
+                Some(state.search_mode),
+                Message::SetSearchMode,
+            )
+            .text_size(metrics::UI_PX),
+        );
     // Greyed: labwc owns these (auto-hide / lock are compositor behaviours),
     // present for fidelity but not enforced here — like taskbar_properties.rs.
     let greyed = |label: &'static str| {
@@ -1383,13 +1453,22 @@ fn taskbar_page(state: &Settings) -> Element<'_, Message> {
     Column::new()
         .spacing(10.0)
         .push(location)
+        .push(search)
+        // Real toggle: panel.rs hides the Task View button when off (E2.9).
+        .push(
+            checkbox("Show the Task View button", state.show_taskview)
+                .on_toggle(Message::SetShowTaskview)
+                .size(metrics::UI_PX)
+                .text_size(metrics::UI_PX)
+                .spacing(8.0)
+                .style(mde_ui::checkbox_style),
+        )
         .push(greyed("Lock the taskbar"))
         .push(greyed("Automatically hide the taskbar"))
         .push(
             text(
-                "Lock / auto-hide are labwc-managed. Small buttons, the search box, and the Task \
-                 View button toggle arrive with the search/Task-View panel work; left/right \
-                 (vertical) location is a later milestone.",
+                "Lock / auto-hide are labwc-managed. \"Use small buttons\" and left/right \
+                 (vertical) location are a later milestone.",
             )
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT)),
