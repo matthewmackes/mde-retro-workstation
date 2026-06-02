@@ -215,6 +215,12 @@ pub struct MenuState {
     /// 0 = not paused. While in the future the dnf-automatic timer is masked.
     #[serde(default)]
     pub update_paused_until: u64,
+    /// Settings ▸ Update active hours (E13.5): the window updates avoid; the
+    /// dnf-automatic timer is overridden to run at `update_active_end`. Hours 0–23.
+    #[serde(default = "def_active_start")]
+    pub update_active_start: u8,
+    #[serde(default = "def_active_end")]
+    pub update_active_end: u8,
     /// Win10 Explorer ▸ Quick access user-pinned folders (E8.3): appended to the
     /// auto-pinned standard folders in the Frequent-folders list.
     #[serde(default)]
@@ -234,6 +240,13 @@ fn def_taskbar_location() -> String {
 }
 fn def_search_mode() -> String {
     "button".into()
+}
+/// Default active-hours window (E13.5): 08:00–17:00, the Win10 default.
+fn def_active_start() -> u8 {
+    8
+}
+fn def_active_end() -> u8 {
+    17
 }
 fn def_explorer_landing() -> String {
     "quick".into()
@@ -263,6 +276,8 @@ impl Default for MenuState {
             win10_show_taskview: true,
             win10_search_mode: def_search_mode(),
             update_paused_until: 0,
+            update_active_start: def_active_start(),
+            update_active_end: def_active_end(),
             explorer_pins: Vec::new(),
             explorer_landing: def_explorer_landing(),
         }
@@ -376,6 +391,8 @@ mod tests {
             win10_show_taskview: false,
             win10_search_mode: "box".into(),
             update_paused_until: 1_900_000_000,
+            update_active_start: 9,
+            update_active_end: 18,
             explorer_pins: vec![PathBuf::from("/home/me/Projects")],
             explorer_landing: "thispc".into(),
         };

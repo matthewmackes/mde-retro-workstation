@@ -107,6 +107,15 @@ impl std::fmt::Display for SearchMode {
         })
     }
 }
+
+/// An hour of the day, for the active-hours pick-lists (E13.5) — renders `HH:00`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Hour(u8);
+impl std::fmt::Display for Hour {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:02}:00", self.0)
+    }
+}
 impl std::fmt::Display for BgSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -424,6 +433,9 @@ struct Settings {
     /// Update page (E13.4): paused-until Unix seconds (0 = not paused), mirrors
     /// `state.update_paused_until`.
     update_paused_until: u64,
+    /// Update page (E13.5): active-hours window (hours 0–23), mirrors state.
+    active_start: u8,
+    active_end: u8,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -472,6 +484,9 @@ enum Message {
     UpdatesInstalled(bool),
     PauseUpdates,
     ResumeUpdates,
+    SetActiveStart(u8),
+    SetActiveEnd(u8),
+    SaveActiveHours,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -598,6 +613,8 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 update_status: None,
                 update_installing: false,
                 update_paused_until: st.update_paused_until,
+                active_start: st.update_active_start,
+                active_end: st.update_active_end,
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -757,8 +774,34 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
                 .spawn();
             persist(state);
         }
+        Message::SetActiveStart(h) => {
+            state.active_start = h;
+            persist(state);
+        }
+        Message::SetActiveEnd(h) => {
+            state.active_end = h;
+            persist(state);
+        }
+        Message::SaveActiveHours => {
+            // Override the dnf-automatic timer to run at the end of active hours.
+            let _ = Command::new("pkexec")
+                .args(["sh", "-c", &active_hours_override(state.active_end)])
+                .spawn();
+        }
     }
     Task::none()
+}
+
+/// The privileged script (run via `pkexec sh -c`) that overrides the dnf-automatic
+/// timer to fire at the end of active hours (E13.5): a drop-in whose empty
+/// `OnCalendar=` clears the packaged schedule, then the next sets ours, followed by
+/// a daemon-reload. Pure, so the schedule string is unit-tested without root.
+fn active_hours_override(end: u8) -> String {
+    format!(
+        "mkdir -p /etc/systemd/system/dnf-automatic.timer.d && \
+         printf '[Timer]\\nOnCalendar=\\nOnCalendar=*-*-* {end:02}:00:00\\n' \
+         > /etc/systemd/system/dnf-automatic.timer.d/override.conf && systemctl daemon-reload"
+    )
 }
 
 /// Now in Unix seconds (0 if the clock is before the epoch, which never happens).
@@ -1012,6 +1055,8 @@ fn persist(state: &Settings) {
     st.win10_search_mode = state.search_mode.key().to_string();
     st.win10_show_taskview = state.show_taskview;
     st.update_paused_until = state.update_paused_until;
+    st.update_active_start = state.active_start;
+    st.update_active_end = state.active_end;
     let _ = crate::state::save(&st);
 }
 
@@ -1406,6 +1451,41 @@ fn update_page(state: &Settings) -> Element<'_, Message> {
         .into()
     };
     col = col.push(pause);
+    // Active hours (E13.5): the window updates avoid. Start/End hour pick-lists +
+    // Save, which writes the dnf-automatic timer OnCalendar override.
+    let hours: Vec<Hour> = (0..24u8).map(Hour).collect();
+    let active = Row::new()
+        .spacing(8.0)
+        .align_y(iced::alignment::Vertical::Center)
+        .push(
+            text("Active hours")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(
+            pick_list(hours.clone(), Some(Hour(state.active_start)), |h| {
+                Message::SetActiveStart(h.0)
+            })
+            .text_size(metrics::UI_PX),
+        )
+        .push(
+            text("to")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        )
+        .push(
+            pick_list(hours, Some(Hour(state.active_end)), |h| {
+                Message::SetActiveEnd(h.0)
+            })
+            .text_size(metrics::UI_PX),
+        )
+        .push(
+            button(text("Save").size(metrics::UI_PX))
+                .on_press(Message::SaveActiveHours)
+                .padding(Padding::from([4.0, 12.0]))
+                .style(tile_style),
+        );
+    col = col.push(active);
     // The pending-update list (E13.3): package + candidate version, scrollable.
     if !pending.is_empty() {
         let mut list = Column::new().spacing(0.0);
@@ -1892,6 +1972,16 @@ fn mode_button<'a>(label: &'a str, selected: bool, msg: Message) -> Element<'a, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_hours_override_sets_oncalendar_and_reloads() {
+        let s = active_hours_override(17);
+        assert!(s.contains("OnCalendar=*-*-* 17:00:00"));
+        assert!(s.contains("dnf-automatic.timer.d/override.conf"));
+        assert!(s.contains("systemctl daemon-reload"));
+        // Zero-padded hour.
+        assert!(active_hours_override(8).contains("08:00:00"));
+    }
 
     #[test]
     fn pause_steps_seven_days_capped_at_thirty_five() {
