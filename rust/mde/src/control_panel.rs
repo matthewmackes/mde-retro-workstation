@@ -97,7 +97,7 @@ fn gui() -> iced::Result {
         update,
         view,
     )
-    .theme(|_| iced::Theme::Light)
+    .theme(|_| mde_ui::palette::iced_theme())
     .font(mde_ui::font::REGULAR_BYTES)
     .font(mde_ui::font::BOLD_BYTES)
     .font(mde_ui::font::PLEX_REGULAR_BYTES)

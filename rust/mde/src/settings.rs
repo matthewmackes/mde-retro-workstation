@@ -501,7 +501,7 @@ fn list() -> ExitCode {
 
 fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> iced::Result {
     iced::application(|_: &Settings| "Settings - mde".to_string(), update, view)
-        .theme(|_| iced::Theme::Light)
+        .theme(|_| mde_ui::palette::iced_theme())
         .window_size(iced::Size::new(940.0, 640.0))
         .font(mde_ui::font::REGULAR_BYTES)
         .font(mde_ui::font::BOLD_BYTES)

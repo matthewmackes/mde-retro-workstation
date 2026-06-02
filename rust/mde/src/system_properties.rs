@@ -67,7 +67,7 @@ pub fn run(args: &[String]) -> ExitCode {
     let r = iced::application(|_: &SysProps| "System Properties".to_string(), update, view)
         .window_size(iced::Size::new(420.0, 460.0))
         .resizable(false)
-        .theme(|_| iced::Theme::Light)
+        .theme(|_| mde_ui::palette::iced_theme())
         .font(mde_ui::font::REGULAR_BYTES)
         .font(mde_ui::font::BOLD_BYTES)
         .font(mde_ui::font::PLEX_REGULAR_BYTES)

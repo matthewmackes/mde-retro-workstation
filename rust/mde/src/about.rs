@@ -29,7 +29,7 @@ struct About {
 
 pub fn run(_args: &[String]) -> ExitCode {
     let r = iced::application(|_: &About| format!("About {PRODUCT}"), update, view)
-        .theme(|_| iced::Theme::Light)
+        .theme(|_| mde_ui::palette::iced_theme())
         .window_size(iced::Size::new(400.0, 340.0))
         .font(mde_ui::font::REGULAR_BYTES)
         .font(mde_ui::font::BOLD_BYTES)

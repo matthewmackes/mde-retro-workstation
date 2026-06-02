@@ -211,7 +211,7 @@ pub fn run(args: &[String]) -> ExitCode {
 
 fn launch(start: PathBuf, pane: Pane, pins: Vec<PathBuf>) -> iced::Result {
     iced::application(title, update, view)
-        .theme(|_| iced::Theme::Light)
+        .theme(|_| mde_ui::palette::iced_theme())
         .subscription(|_: &Files| event::listen().map(Message::Event))
         .font(mde_ui::font::REGULAR_BYTES)
         .font(mde_ui::font::BOLD_BYTES)

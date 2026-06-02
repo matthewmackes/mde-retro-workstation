@@ -503,3 +503,24 @@ pub fn hex_fixed(rgb: Rgb) -> String {
 pub fn accent() -> iced::Color {
     color(HIGHLIGHT)
 }
+
+/// The iced [`Theme`](iced::Theme) for the **active palette mode**. iced derives a
+/// widget's DEFAULT styling — most importantly the color of any `text()` that
+/// doesn't set `.color()` — from this theme's base colors. Surfaces previously
+/// hardcoded `iced::Theme::Light`, so under the dark Carbon/Win10 palette every
+/// un-colored label fell back to iced's near-black default — black text on a dark
+/// surface. Building the theme from the live palette (dark surface → light default
+/// text) makes those defaults contrast the real background. Every app surface
+/// should use `.theme(|_| mde_ui::palette::iced_theme())`.
+pub fn iced_theme() -> iced::Theme {
+    iced::Theme::custom(
+        "MDE".to_string(),
+        iced::theme::Palette {
+            background: color(WINDOW),
+            text: color(WINDOW_TEXT),
+            primary: accent(),
+            success: accent(),
+            danger: color(URGENT),
+        },
+    )
+}

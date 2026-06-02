@@ -210,7 +210,7 @@ fn gui(
 ) -> iced::Result {
     iced::application(move |_: &FileDialog| title.clone(), update, view)
         .window_size(iced::Size::new(540.0, 380.0))
-        .theme(|_| iced::Theme::Light)
+        .theme(|_| mde_ui::palette::iced_theme())
         .font(mde_ui::font::REGULAR_BYTES)
         .font(mde_ui::font::BOLD_BYTES)
         .font(mde_ui::font::PLEX_REGULAR_BYTES)

@@ -451,7 +451,7 @@ fn gui() -> iced::Result {
     iced::application(|_: &Display| "Display Properties".to_string(), update, view)
         .window_size(iced::Size::new(440.0, 540.0))
         .resizable(false)
-        .theme(|_| iced::Theme::Light)
+        .theme(|_| mde_ui::palette::iced_theme())
         .subscription(|_: &Display| {
             iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::Tick)
         })
