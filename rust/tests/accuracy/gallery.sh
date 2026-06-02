@@ -127,6 +127,9 @@ for era in "carbon:carbon::0,0 1280x40" \
     # The Win10 tiled Start only exists in the Windows 10 era. Seed a few tiles
     # (one widened) so the capture exercises the right tile grid at distinct sizes.
     if [[ "$label" == windows10 ]]; then
+        # The Win10 Explorer no-path landing: Quick access + the left nav pane (This
+        # PC / Network / Cloud Files), distinct from the files-$label folder view (E8).
+        shot "files-win10-quick" files
         printf '{"theme":"windows10","theme_mode":"dark","pinned":[{"name":"Files","command":"mde files"},{"name":"Firefox","command":"firefox","launch_count":5},{"name":"Terminal","command":"foot"}]}\n' \
             > "$era_cfg/mde/menu.json"
         "$bin" start-win10 --resize Files wide >/dev/null 2>&1
