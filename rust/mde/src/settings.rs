@@ -151,6 +151,8 @@ enum Kind {
     UpdateHistory,
     /// The native Update & Security ▸ Advanced options page (E13.7).
     UpdateAdvanced,
+    /// The native Network & Internet ▸ Status page (E15.5).
+    NetworkStatus,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -240,7 +242,7 @@ const CATEGORIES: &[Category] = &[
         pages: &[
             Page {
                 title: "Connections",
-                kind: Kind::Tool("nm-connection-editor"),
+                kind: Kind::NetworkStatus,
             },
             Page {
                 title: "Wi-Fi",
@@ -460,6 +462,10 @@ struct Settings {
     /// Automatic-updates posture (E13.8), read live from the timer/config — the
     /// same source the System Properties radios use, so the two surfaces agree.
     auto_mode: crate::sysinfo::AutoMode,
+    /// Network status page (E15.5): the active connections + the active one's
+    /// firewalld zone (Private/Public), read live from nmcli.
+    net_conns: Vec<crate::nm::Conn>,
+    net_zone: String,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -521,6 +527,9 @@ enum Message {
     SetRestartNotify(bool),
     // Automatic-updates posture (E13.8).
     SetAutoMode(crate::sysinfo::AutoMode),
+    // Network status page (E15.5).
+    SetNetPrivate(bool),
+    OpenNetEditor,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -603,6 +612,7 @@ fn list() -> ExitCode {
                 Kind::Update => "(native: Update)".to_string(),
                 Kind::UpdateHistory => "(native: Update history)".to_string(),
                 Kind::UpdateAdvanced => "(native: Advanced options)".to_string(),
+                Kind::NetworkStatus => "(native: Network status)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -625,6 +635,13 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
         .default_font(mde_ui::font::ui())
         .run_with(move || {
             let st = crate::state::load();
+            // Network status (E15.5): the active connections + the active one's zone.
+            let net_conns = crate::nm::active_connections();
+            let net_zone = net_conns
+                .iter()
+                .find(|c| c.state == "activated")
+                .map(|c| crate::nm::connection_zone(&c.name))
+                .unwrap_or_default();
             let mut s = Settings {
                 view: initial.map(View::Category).unwrap_or(View::Home),
                 page: initial_page,
@@ -657,6 +674,8 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 restart_asap: st.update_restart_asap,
                 restart_notify: st.update_restart_notify,
                 auto_mode: crate::sysinfo::auto_mode(),
+                net_conns,
+                net_zone,
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -879,6 +898,17 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
                 .args(["-c", &crate::sysinfo::set_auto_command(m)])
                 .spawn();
             state.auto_mode = m;
+        }
+        Message::SetNetPrivate(private) => {
+            // Private = a trusted firewalld zone (home), Public = public (E15.5).
+            let zone = if private { "home" } else { "public" };
+            if let Some(c) = state.net_conns.iter().find(|c| c.state == "activated") {
+                crate::nm::set_zone(&c.name, zone);
+                state.net_zone = crate::nm::connection_zone(&c.name);
+            }
+        }
+        Message::OpenNetEditor => {
+            let _ = Command::new("nm-connection-editor").spawn();
         }
     }
     Task::none()
@@ -1195,6 +1225,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Update
         | Kind::UpdateHistory
         | Kind::UpdateAdvanced
+        | Kind::NetworkStatus
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -1485,6 +1516,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Update => update_page(state),
         Kind::UpdateHistory => update_history_page(state),
         Kind::UpdateAdvanced => update_advanced_page(state),
+        Kind::NetworkStatus => network_status_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -1847,6 +1879,62 @@ fn update_advanced_page(state: &Settings) -> Element<'_, Message> {
             .color(palette::color(palette::GRAY_TEXT)),
         )
         .into()
+}
+
+/// Network & Internet ▸ Status (E15.5): the active connection summary, a
+/// Private/Public network-profile toggle (firewalld zone), and an Advanced handoff
+/// to nm-connection-editor. Reads live from nmcli (loaded at settings start).
+fn network_status_page(state: &Settings) -> Element<'_, Message> {
+    let active = state.net_conns.iter().find(|c| c.state == "activated");
+    let (glyph, head, sub) = match active {
+        Some(c) => (
+            "\u{f1eb}", // nf-fa-wifi
+            format!("Connected — {}", c.name),
+            format!("{} on {}", c.kind, c.device),
+        ),
+        None => ("\u{f071}", "Not connected".to_string(), String::new()), // nf-fa-warning
+    };
+    let mut lines = Column::new().spacing(2.0).push(
+        text(head)
+            .size(metrics::INFO_TITLE_PX)
+            .color(palette::color(palette::WINDOW_TEXT)),
+    );
+    if !sub.is_empty() {
+        lines = lines.push(
+            text(sub)
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+    }
+    let card = Row::new()
+        .spacing(12.0)
+        .align_y(iced::alignment::Vertical::Center)
+        .push(
+            text(glyph)
+                .size(metrics::TILE_GLYPH_PX)
+                .font(mde_ui::font::NERD)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(lines);
+    let mut col = Column::new().spacing(16.0).push(card);
+    if active.is_some() {
+        let is_private = state.net_zone != "public";
+        col = col.push(
+            checkbox("Make this a private (trusted) network", is_private)
+                .on_toggle(Message::SetNetPrivate)
+                .size(metrics::UI_PX)
+                .text_size(metrics::UI_PX)
+                .spacing(8.0)
+                .style(mde_ui::checkbox_style),
+        );
+    }
+    col.push(
+        button(text("Change advanced sharing options").size(metrics::UI_PX))
+            .on_press(Message::OpenNetEditor)
+            .padding(Padding::from([6.0, 16.0]))
+            .style(tile_style),
+    )
+    .into()
 }
 
 /// Personalization ▸ Colors (E6.4): the Light/Dark choice (re-skins live + persists).

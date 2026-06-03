@@ -142,6 +142,23 @@ pub fn device_bytes(dev: &str) -> (u64, u64) {
     (read("rx_bytes"), read("tx_bytes"))
 }
 
+/// A connection's firewalld zone (`nmcli -g connection.zone connection show <name>`)
+/// — the Network status page's Private/Public profile (E15.5).
+pub fn connection_zone(name: &str) -> String {
+    nmcli(&["-g", "connection.zone", "connection", "show", name])
+        .trim()
+        .to_string()
+}
+
+/// Set a connection's firewalld zone (Private↔Public toggle, E15.5). Best-effort.
+pub fn set_zone(name: &str, zone: &str) -> bool {
+    Command::new("nmcli")
+        .args(["connection", "modify", name, "connection.zone", zone])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// The GNOME proxy mode (`none`/`manual`/`auto`) — the Proxy page (E15.9) reads it.
 pub fn proxy_mode() -> String {
     Command::new("gsettings")
