@@ -14,6 +14,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rust_root="$(cd "$here/../.." && pwd)"
 bin="$rust_root/target/debug/mde"
 out="$here/captures/gallery"
+# Where `shot` writes. Defaults to the gallery root (the default-theme showcase
+# shots); the era-parity loop overrides it to "$out/<era>" so each era's captures
+# land in their own subdirectory (E20.3: captures/gallery/<era>/<component>.png).
+dest="$out"
 conf="$here/gallery-sway.conf"
 RT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
@@ -66,13 +70,14 @@ shot() {
         esac
     done
     echo "  [$name] $*"
+    mkdir -p "$dest"
     "$bin" "$@" >/dev/null 2>&1 &
     local pid=$!
     sleep "$wait"
     if [[ -n "$crop" ]]; then
-        grim -g "$crop" "$out/$name.png" 2>/dev/null && echo "    -> $name.png (crop $crop, $(stat -c%s "$out/$name.png" 2>/dev/null) B)" || echo "    !! grab failed"
+        grim -g "$crop" "$dest/$name.png" 2>/dev/null && echo "    -> $name.png (crop $crop, $(stat -c%s "$dest/$name.png" 2>/dev/null) B)" || echo "    !! grab failed"
     else
-        grim -o HEADLESS-1 "$out/$name.png" 2>/dev/null && echo "    -> $name.png ($(stat -c%s "$out/$name.png" 2>/dev/null) B)" || echo "    !! grab failed"
+        grim -o HEADLESS-1 "$dest/$name.png" 2>/dev/null && echo "    -> $name.png ($(stat -c%s "$dest/$name.png" 2>/dev/null) B)" || echo "    !! grab failed"
     fi
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
@@ -121,11 +126,13 @@ for era in "carbon:carbon::0,0 1280x40" \
            "windows10:windows10::0,920 1280x40" \
            "beos:win2000:haiku:0,0 120x960"; do
     IFS=: read -r label theme iconset pcrop <<< "$era"
+    # Each era's captures land in their own subdir: captures/gallery/<era>/ (E20.3).
+    dest="$out/$label"
     printf '{"theme":"%s","theme_mode":"dark","icon_set":"%s"}\n' "$theme" "$iconset" \
         > "$era_cfg/mde/menu.json"
-    shot "panel-$label" --crop "$pcrop" panel
-    shot "menu-$label"  menu
-    shot "files-$label" files "$HOME"
+    shot "panel" --crop "$pcrop" panel
+    shot "menu"  menu
+    shot "files" files "$HOME"
     # The Win10 tiled Start only exists in the Windows 10 era. Seed a few tiles
     # (one widened) so the capture exercises the right tile grid at distinct sizes.
     if [[ "$label" == windows10 ]]; then
@@ -192,11 +199,13 @@ JSON
 done
 unset XDG_CONFIG_HOME
 rm -rf "$era_cfg"
+dest="$out" # back to the gallery root for the montages below
 
 # Era-comparison strip of the four taskbars (the Win10 accent is the tell).
+# Each era's panel now lives in its own subdir (E20.3): captures/gallery/<era>/panel.png.
 if command -v montage >/dev/null 2>&1; then
-    montage "$out"/panel-carbon.png "$out"/panel-win2000.png \
-            "$out"/panel-windows10.png "$out"/panel-beos.png \
+    montage "$out"/carbon/panel.png "$out"/win2000/panel.png \
+            "$out"/windows10/panel.png "$out"/beos/panel.png \
             -tile 1x -geometry +0+4 -background '#222' -title "MDE-Retro — taskbar per era" \
             "$out/_era-taskbars.png" 2>/dev/null && echo "    -> _era-taskbars.png" || true
 fi
