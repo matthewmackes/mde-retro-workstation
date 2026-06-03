@@ -155,6 +155,10 @@ enum Kind {
     NetworkStatus,
     /// The native Network & Internet ▸ Wi-Fi page (E15.6).
     Wifi,
+    /// The native Network & Internet ▸ Ethernet page (E15.7).
+    Ethernet,
+    /// The native Network & Internet ▸ VPN page (E15.7).
+    Vpn,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -251,8 +255,12 @@ const CATEGORIES: &[Category] = &[
                 kind: Kind::Wifi,
             },
             Page {
+                title: "Ethernet",
+                kind: Kind::Ethernet,
+            },
+            Page {
                 title: "VPN",
-                kind: Kind::Deferred,
+                kind: Kind::Vpn,
             },
             Page {
                 title: "Proxy",
@@ -473,6 +481,8 @@ struct Settings {
     wifis: Option<Vec<crate::nm::Wifi>>,
     wifi_scanning: bool,
     wifi_autoconnect: bool,
+    /// VPN/WireGuard connections (E15.7), read at settings start.
+    vpns: Vec<crate::nm::Conn>,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -541,6 +551,9 @@ enum Message {
     WifiScanned(Vec<crate::nm::Wifi>),
     ConnectSsid(String),
     SetWifiAutoconnect(bool),
+    // VPN page (E15.7).
+    VpnToggle(String, bool),
+    AddVpn,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -625,6 +638,8 @@ fn list() -> ExitCode {
                 Kind::UpdateAdvanced => "(native: Advanced options)".to_string(),
                 Kind::NetworkStatus => "(native: Network status)".to_string(),
                 Kind::Wifi => "(native: Wi-Fi)".to_string(),
+                Kind::Ethernet => "(native: Ethernet)".to_string(),
+                Kind::Vpn => "(native: VPN)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -691,6 +706,7 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 wifis: None,
                 wifi_scanning: false,
                 wifi_autoconnect: true,
+                vpns: crate::nm::vpn_list(),
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -939,6 +955,13 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         Message::SetWifiAutoconnect(on) => {
             crate::nm::set_wifi_autoconnect(on);
             state.wifi_autoconnect = on;
+        }
+        Message::VpnToggle(name, up) => {
+            crate::nm::vpn_up_down(&name, up);
+            state.vpns = crate::nm::vpn_list(); // refresh the active state
+        }
+        Message::AddVpn => {
+            let _ = Command::new("nm-connection-editor").spawn();
         }
     }
     Task::none()
@@ -1275,6 +1298,8 @@ fn open_current(state: &mut Settings) {
         | Kind::UpdateAdvanced
         | Kind::NetworkStatus
         | Kind::Wifi
+        | Kind::Ethernet
+        | Kind::Vpn
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -1567,6 +1592,8 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::UpdateAdvanced => update_advanced_page(state),
         Kind::NetworkStatus => network_status_page(state),
         Kind::Wifi => wifi_page(state),
+        Kind::Ethernet => ethernet_page(state),
+        Kind::Vpn => vpn_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -1928,6 +1955,97 @@ fn update_advanced_page(state: &Settings) -> Element<'_, Message> {
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT)),
         )
+        .into()
+}
+
+/// Network & Internet ▸ Ethernet (E15.7): the wired connection summary + a
+/// Private/Public network-profile toggle (reuses the active connection's zone via
+/// `SetNetPrivate`, E15.5). Shows "not connected" when no wired link is active.
+fn ethernet_page(state: &Settings) -> Element<'_, Message> {
+    let wired = state
+        .net_conns
+        .iter()
+        .find(|c| c.kind.contains("ethernet") && c.state == "activated");
+    let Some(c) = wired else {
+        return text("Not connected via Ethernet.")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::GRAY_TEXT))
+            .into();
+    };
+    let card = Column::new()
+        .spacing(2.0)
+        .push(
+            text(format!("Connected — {}", c.name))
+                .size(metrics::INFO_TITLE_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(
+            text(format!("Wired · {}", c.device))
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+    let is_private = state.net_zone != "public";
+    Column::new()
+        .spacing(16.0)
+        .push(card)
+        .push(
+            checkbox("Make this a private (trusted) network", is_private)
+                .on_toggle(Message::SetNetPrivate)
+                .size(metrics::UI_PX)
+                .text_size(metrics::UI_PX)
+                .spacing(8.0)
+                .style(mde_ui::checkbox_style),
+        )
+        .into()
+}
+
+/// Network & Internet ▸ VPN (E15.7): the configured VPN/WireGuard connections with
+/// per-row Connect/Disconnect (`nmcli connection up/down`) + an "Add VPN" button
+/// that opens nm-connection-editor.
+fn vpn_page(state: &Settings) -> Element<'_, Message> {
+    let add = button(text("Add VPN connection").size(metrics::UI_PX))
+        .on_press(Message::AddVpn)
+        .padding(Padding::from([6.0, 16.0]))
+        .style(tile_style);
+    let body: Element<Message> = if state.vpns.is_empty() {
+        text("No VPN connections configured.")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::GRAY_TEXT))
+            .into()
+    } else {
+        let mut col = Column::new().spacing(4.0);
+        for v in &state.vpns {
+            let active = v.state == "activated";
+            col = col.push(
+                Row::new()
+                    .spacing(8.0)
+                    .align_y(iced::alignment::Vertical::Center)
+                    .push(
+                        text(v.name.clone())
+                            .size(metrics::UI_PX)
+                            .width(Length::Fill)
+                            .color(palette::color(palette::WINDOW_TEXT)),
+                    )
+                    .push(
+                        button(
+                            text(if active { "Disconnect" } else { "Connect" })
+                                .size(metrics::UI_PX),
+                        )
+                        .on_press(Message::VpnToggle(v.name.clone(), !active))
+                        .padding(Padding::from([2.0, 10.0]))
+                        .style(tile_style),
+                    )
+                    .padding(Padding::from([2.0, 4.0])),
+            );
+        }
+        container(scrollable(col).style(mde_ui::scrollbar))
+            .height(Length::Fill)
+            .into()
+    };
+    Column::new()
+        .spacing(12.0)
+        .push(add)
+        .push(container(body).height(Length::Fill))
         .into()
 }
 

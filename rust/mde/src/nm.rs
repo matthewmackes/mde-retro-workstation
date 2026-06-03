@@ -252,6 +252,16 @@ pub fn wifi_connect(ssid: &str, password: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Bring a VPN/connection up or down (`nmcli connection up|down <name>`), for the
+/// VPN page (E15.7). Best-effort.
+pub fn vpn_up_down(name: &str, up: bool) -> bool {
+    Command::new("nmcli")
+        .args(["connection", if up { "up" } else { "down" }, name])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Turn the Wi-Fi radio on/off (`nmcli radio wifi on|off`). Best-effort.
 pub fn radio_wifi(on: bool) -> bool {
     Command::new("nmcli")
