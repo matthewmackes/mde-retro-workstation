@@ -518,6 +518,8 @@ struct Settings {
     /// Win10 taskbar search affordance + Task-View button (E7.9a), consumed by panel.rs.
     search_mode: SearchMode,
     show_taskview: bool,
+    /// Win10 "automatically hide the taskbar" (E2.9a), consumed by panel.rs.
+    autohide: bool,
     /// Lock screen (greeter) picture selection (E7.6).
     lock_selected: Option<usize>,
     /// Update page (E13.2): a `dnf check-update` is in flight.
@@ -625,6 +627,7 @@ enum Message {
     SetTaskbarLoc(TaskbarLoc),
     SetSearchMode(SearchMode),
     SetShowTaskview(bool),
+    SetAutohide(bool),
     // Lock screen page (E7.6).
     LockSelect(usize),
     LockBrowse,
@@ -847,6 +850,7 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 taskbar_loc: TaskbarLoc::from_key(&st.taskbar_location),
                 search_mode: SearchMode::from_key(&st.win10_search_mode),
                 show_taskview: st.win10_show_taskview,
+                autohide: st.win10_autohide,
                 lock_selected: None,
                 update_checking: false,
                 update_status: None,
@@ -998,6 +1002,10 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         }
         Message::SetShowTaskview(v) => {
             state.show_taskview = v;
+            persist(state);
+        }
+        Message::SetAutohide(v) => {
+            state.autohide = v;
             persist(state);
         }
         Message::LockSelect(i) => state.lock_selected = Some(i),
@@ -1731,6 +1739,7 @@ fn persist(state: &Settings) {
     st.taskbar_location = state.taskbar_loc.key().to_string();
     st.win10_search_mode = state.search_mode.key().to_string();
     st.win10_show_taskview = state.show_taskview;
+    st.win10_autohide = state.autohide;
     st.update_paused_until = state.update_paused_until;
     st.update_active_start = state.active_start;
     st.update_active_end = state.active_end;
@@ -3509,8 +3518,8 @@ fn taskbar_page(state: &Settings) -> Element<'_, Message> {
             )
             .text_size(metrics::UI_PX),
         );
-    // Greyed: labwc owns these (auto-hide / lock are compositor behaviours),
-    // present for fidelity but not enforced here — like taskbar_properties.rs.
+    // Greyed: labwc owns "Lock the taskbar", present for fidelity but not enforced
+    // here — like taskbar_properties.rs.
     let greyed = |label: &'static str| {
         checkbox(label, false)
             .size(metrics::UI_PX)
@@ -3531,11 +3540,19 @@ fn taskbar_page(state: &Settings) -> Element<'_, Message> {
                 .spacing(8.0)
                 .style(mde_ui::checkbox_style),
         )
+        // Real toggle (E2.9a): panel.rs starts as a 1px reveal strip when on.
+        .push(
+            checkbox("Automatically hide the taskbar", state.autohide)
+                .on_toggle(Message::SetAutohide)
+                .size(metrics::UI_PX)
+                .text_size(metrics::UI_PX)
+                .spacing(8.0)
+                .style(mde_ui::checkbox_style),
+        )
         .push(greyed("Lock the taskbar"))
-        .push(greyed("Automatically hide the taskbar"))
         .push(
             text(
-                "Lock / auto-hide are labwc-managed. \"Use small buttons\" and left/right \
+                "Lock the taskbar is labwc-managed. \"Use small buttons\" and left/right \
                  (vertical) location are a later milestone.",
             )
             .size(metrics::UI_PX)

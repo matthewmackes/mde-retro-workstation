@@ -77,6 +77,10 @@ struct Panel {
     /// affordance mode ("button"/"box"/"hidden").
     show_taskview: bool,
     search_mode: String,
+    /// Win10 auto-hide (E2.9a): the bar starts as a 1px reveal strip and expands
+    /// on hover. `revealed` tracks the current expanded/collapsed state.
+    autohide: bool,
+    revealed: bool,
 }
 
 /// Network connectivity, summarised for the tray glyph.
@@ -105,6 +109,8 @@ enum Message {
     Search,
     JumpList(String), // app_id, for the Win10 right-click jump list (E2.6)
     NetFlyout,        // Win10 network flyout (E15.3)
+    Reveal,           // auto-hide: pointer entered the strip → expand (E2.9a)
+    Unreveal,         // auto-hide: pointer left the bar → collapse to 1px
 }
 
 pub fn run(_args: &[String]) -> ExitCode {
@@ -276,13 +282,26 @@ fn launch() -> Result<(), iced_layershell::Error> {
         // Settings ▸ Personalization ▸ Taskbar location (E7.9); the horizontal
         // bar's content is unchanged, only the anchored edge flips. (left/right
         // need a vertical bar — E7.9a.)
-        let top = crate::state::load().taskbar_location == "top";
+        let st = crate::state::load();
+        let top = st.taskbar_location == "top";
         let edge = if top { Anchor::Top } else { Anchor::Bottom };
-        LayerShellSettings {
-            size: Some((0, WIN10_BAR_H as u32)),
-            exclusive_zone: WIN10_BAR_H as i32,
-            anchor: edge | Anchor::Left | Anchor::Right,
-            ..Default::default()
+        if st.win10_autohide {
+            // Auto-hide (E2.9a): reserve no space and start as a 1px reveal strip at
+            // the edge. Hovering it expands to full height via `SizeChange` (see
+            // `view_win10`'s reveal `mouse_area`); leaving collapses it back.
+            LayerShellSettings {
+                size: Some((0, 1)),
+                exclusive_zone: 0,
+                anchor: edge | Anchor::Left | Anchor::Right,
+                ..Default::default()
+            }
+        } else {
+            LayerShellSettings {
+                size: Some((0, WIN10_BAR_H as u32)),
+                exclusive_zone: WIN10_BAR_H as i32,
+                anchor: edge | Anchor::Left | Anchor::Right,
+                ..Default::default()
+            }
         }
     } else {
         LayerShellSettings {
@@ -312,6 +331,7 @@ fn launch() -> Result<(), iced_layershell::Error> {
             clock_offset: utc_offset_secs(),
             show_taskview: st.win10_show_taskview,
             search_mode: st.win10_search_mode.clone(),
+            autohide: st.win10_autohide,
             pinned: st.pinned,
             ..Panel::default()
         };
@@ -451,6 +471,16 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
             if let Some(child) = step_brightness(up) {
                 state.children.push(child);
             }
+        }
+        // Auto-hide reveal (E2.9a): expand to full height on edge-hover, collapse
+        // back to the 1px strip on leave, via the layer-shell SizeChange action.
+        Message::Reveal if state.autohide && !state.revealed => {
+            state.revealed = true;
+            return Task::done(Message::SizeChange((0, WIN10_BAR_H as u32)));
+        }
+        Message::Unreveal if state.autohide && state.revealed => {
+            state.revealed = false;
+            return Task::done(Message::SizeChange((0, 1)));
         }
         _ => {}
     }
@@ -922,7 +952,7 @@ fn view_win10(state: &Panel) -> Element<'_, Message> {
     );
 
     // Flat dark bar (Win10 SHELL_HEADER) with a 1px accent top edge.
-    Stack::new()
+    let stack = Stack::new()
         .push(
             container(bar)
                 .width(Length::Fill)
@@ -945,8 +975,17 @@ fn view_win10(state: &Panel) -> Element<'_, Message> {
                         }),
                 )
                 .push(Space::new(Length::Fill, Length::Fill)),
-        )
-        .into()
+        );
+    // Auto-hide (E2.9a): a reveal mouse_area drives the expand/collapse — entering
+    // the 1px edge strip expands the bar, leaving it collapses back.
+    if state.autohide {
+        mouse_area(stack)
+            .on_enter(Message::Reveal)
+            .on_exit(Message::Unreveal)
+            .into()
+    } else {
+        stack.into()
+    }
 }
 
 /// A Windows 10 taskbar app button: icon-only, with a 2px accent underline when
