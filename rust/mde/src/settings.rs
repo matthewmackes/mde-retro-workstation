@@ -209,6 +209,8 @@ enum Kind {
     FamilyUsers,
     /// The native Accounts ▸ Sign-in options page (E10.6): PIN + password + Hello.
     SignIn,
+    /// The native Devices ▸ Bluetooth page (E12.2): BlueZ adapter + device list.
+    Bluetooth,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -270,7 +272,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "Bluetooth & other devices",
-                kind: Kind::Deferred,
+                kind: Kind::Bluetooth,
             },
             Page {
                 title: "Mouse",
@@ -588,6 +590,9 @@ struct Settings {
     /// Accounts ▸ Your info (E10.3): friendly name + avatar path, mirroring `state`.
     display_name: String,
     account_picture: String,
+    /// Devices ▸ Bluetooth (E12.2): the BlueZ adapter + device snapshot, loaded
+    /// off-thread on first visit and after each action.
+    bt: Option<crate::bluez::BtState>,
     /// Accounts ▸ Family & other users (E10.4): the enumerated local accounts,
     /// (re)read on each visit to that page.
     accounts: Vec<crate::sysinfo::Account>,
@@ -707,6 +712,13 @@ enum Message {
     SavePin,
     RemovePin,
     ChangePassword,
+    // Devices ▸ Bluetooth (E12.2).
+    BtLoaded(Box<crate::bluez::BtState>),
+    BtPowered(bool),
+    BtDiscover,
+    BtPair(String),
+    BtConnectToggle(String, bool), // (path, currently-connected)
+    BtRemove(String),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -812,6 +824,7 @@ fn list() -> ExitCode {
                 Kind::AccountInfo => "(native: Your info)".to_string(),
                 Kind::FamilyUsers => "(native: Family & other users)".to_string(),
                 Kind::SignIn => "(native: Sign-in options)".to_string(),
+                Kind::Bluetooth => "(native: Bluetooth)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -895,6 +908,7 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 wifi_radio: false,
                 display_name: st.display_name.clone(),
                 account_picture: st.account_picture.clone(),
+                bt: None,
                 accounts: Vec::new(),
                 new_user: String::new(),
                 confirm_remove: None,
@@ -1280,6 +1294,30 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
             return pkexec_then_reload(crate::sysinfo::userdel_cmd(&name));
         }
         Message::AccountsReloaded => state.accounts = crate::sysinfo::accounts(),
+        // --- Devices ▸ Bluetooth (E12.2) — every action runs off-thread, then
+        // re-reads the adapter so the list reflects what actually changed.
+        Message::BtLoaded(s) => state.bt = Some(*s),
+        Message::BtPowered(on) => {
+            return bt_action_task(move || crate::bluez::set_powered(on));
+        }
+        Message::BtDiscover => {
+            return bt_action_task(|| crate::bluez::set_discovery(true));
+        }
+        Message::BtPair(path) => {
+            return bt_action_task(move || crate::bluez::pair(&path));
+        }
+        Message::BtConnectToggle(path, connected) => {
+            return bt_action_task(move || {
+                if connected {
+                    crate::bluez::disconnect(&path)
+                } else {
+                    crate::bluez::connect(&path)
+                }
+            });
+        }
+        Message::BtRemove(path) => {
+            return bt_action_task(move || crate::bluez::remove(&path));
+        }
         // Keep PIN entry to digits (a Windows-style numeric PIN), capped at 8.
         Message::Pin1(p) => {
             state.pin1 = p.chars().filter(char::is_ascii_digit).take(8).collect();
@@ -1501,8 +1539,38 @@ fn maybe_load(state: &mut Settings) -> Task<Message> {
             state.pin_set = crate::pin::is_set();
             Task::none()
         }
+        Some(Kind::Bluetooth) if state.bt.is_none() => bt_load_task(),
         _ => Task::none(),
     }
+}
+
+/// Read the BlueZ adapter + device list off the UI thread (E12.2) — the zbus
+/// calls block, so they run on tokio's blocking pool and deliver `Message::BtLoaded`.
+fn bt_load_task() -> Task<Message> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(crate::bluez::state)
+                .await
+                .unwrap_or_default()
+        },
+        |s| Message::BtLoaded(Box::new(s)),
+    )
+}
+
+/// Run a BlueZ mutation off-thread, then re-read the adapter so the page reflects
+/// the change (E12.2).
+fn bt_action_task<F: FnOnce() + Send + 'static>(action: F) -> Task<Message> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || {
+                action();
+                crate::bluez::state()
+            })
+            .await
+            .unwrap_or_default()
+        },
+        |s| Message::BtLoaded(Box::new(s)),
+    )
 }
 
 /// Scan Wi-Fi off the UI thread (E15.6) — `nmcli dev wifi` can take seconds, so it
@@ -1704,6 +1772,7 @@ fn open_current(state: &mut Settings) {
         | Kind::AccountInfo
         | Kind::FamilyUsers
         | Kind::SignIn
+        | Kind::Bluetooth
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -2014,6 +2083,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::AccountInfo => account_info_page(state),
         Kind::FamilyUsers => family_users_page(state),
         Kind::SignIn => sign_in_page(state),
+        Kind::Bluetooth => bluetooth_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -2724,6 +2794,133 @@ fn sign_in_page(state: &Settings) -> Element<'_, Message> {
         .push(hello("Windows Hello Fingerprint"))
         .push(pin_section)
         .push(password_section)
+        .into()
+}
+
+/// Devices ▸ Bluetooth (E12.2): the BlueZ adapter Powered toggle, an "Add a device"
+/// discovery action, and the device list (paired → Connect/Disconnect + Remove;
+/// discovered → Pair). All actions run off-thread and re-read the adapter.
+fn bluetooth_page(state: &Settings) -> Element<'_, Message> {
+    let Some(bt) = &state.bt else {
+        return text("Checking Bluetooth…")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::GRAY_TEXT))
+            .into();
+    };
+    if !bt.present {
+        return text("No Bluetooth adapter was found on this PC.")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::GRAY_TEXT))
+            .into();
+    }
+
+    let mut col = Column::new().spacing(12.0).push(
+        checkbox("Bluetooth", bt.powered)
+            .on_toggle(Message::BtPowered)
+            .size(metrics::UI_PX)
+            .text_size(metrics::UI_PX)
+            .spacing(8.0)
+            .style(mde_ui::checkbox_style),
+    );
+
+    if !bt.powered {
+        return col
+            .push(
+                text("Bluetooth is off. Turn it on to connect devices.")
+                    .size(metrics::BADGE_PX)
+                    .color(palette::color(palette::GRAY_TEXT)),
+            )
+            .into();
+    }
+
+    col = col.push(
+        button(
+            text(if bt.discovering {
+                "Searching for devices…"
+            } else {
+                "+ Add a device"
+            })
+            .size(metrics::UI_PX),
+        )
+        .on_press(Message::BtDiscover)
+        .padding(Padding::from([4.0, 12.0]))
+        .style(mde_ui::button_primary),
+    );
+
+    if bt.devices.is_empty() {
+        return col
+            .push(
+                text("No devices yet — select \"Add a device\" to find nearby ones.")
+                    .size(metrics::UI_PX)
+                    .color(palette::color(palette::GRAY_TEXT)),
+            )
+            .into();
+    }
+
+    let mut list = Column::new().spacing(4.0);
+    for d in &bt.devices {
+        let status = if d.connected {
+            "Connected"
+        } else if d.paired {
+            "Paired"
+        } else {
+            "Available"
+        };
+        let mut row = Row::new()
+            .spacing(10.0)
+            .align_y(iced::alignment::Vertical::Center)
+            .push(
+                text("\u{f293}") // nf-fa-bluetooth
+                    .font(mde_ui::font::NERD)
+                    .size(metrics::TILE_GLYPH_PX)
+                    .color(palette::color(if d.connected {
+                        palette::WINDOW_TEXT
+                    } else {
+                        palette::GRAY_TEXT
+                    })),
+            )
+            .push(
+                Column::new()
+                    .width(Length::Fill)
+                    .push(
+                        text(d.name.clone())
+                            .size(metrics::UI_PX)
+                            .color(palette::color(palette::WINDOW_TEXT)),
+                    )
+                    .push(
+                        text(status)
+                            .size(metrics::BADGE_PX)
+                            .color(palette::color(palette::GRAY_TEXT)),
+                    ),
+            );
+        if d.paired {
+            row = row
+                .push(
+                    button(
+                        text(if d.connected { "Disconnect" } else { "Connect" })
+                            .size(metrics::UI_PX),
+                    )
+                    .on_press(Message::BtConnectToggle(d.path.clone(), d.connected))
+                    .padding(Padding::from([3.0, 10.0]))
+                    .style(mde_ui::button_ghost),
+                )
+                .push(
+                    button(text("Remove").size(metrics::UI_PX))
+                        .on_press(Message::BtRemove(d.path.clone()))
+                        .padding(Padding::from([3.0, 10.0]))
+                        .style(mde_ui::button_ghost),
+                );
+        } else {
+            row = row.push(
+                button(text("Pair").size(metrics::UI_PX))
+                    .on_press(Message::BtPair(d.path.clone()))
+                    .padding(Padding::from([3.0, 10.0]))
+                    .style(mde_ui::button_primary),
+            );
+        }
+        list = list.push(container(row).padding(Padding::from([4.0, 4.0])));
+    }
+    col.push(container(scrollable(list).style(mde_ui::scrollbar)).height(Length::Fill))
         .into()
 }
 

@@ -14,6 +14,7 @@ use std::process::ExitCode;
 mod about;
 mod action_center;
 mod apps;
+mod bluez;
 mod browser;
 mod browser_jumplist;
 mod catalogue;
@@ -201,6 +202,10 @@ fn main() -> ExitCode {
         }
         "__security-probe" => {
             security_probe::debug_print();
+            ExitCode::SUCCESS
+        }
+        "__bt-list" => {
+            bluez::debug_list();
             ExitCode::SUCCESS
         }
         "__nm-list" => {
