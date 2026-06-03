@@ -85,6 +85,26 @@ shot() {
     sleep 0.4
 }
 
+# panel_crop ERA — the grim crop for an era's taskbar, derived from the single
+# §7 anchor table (CLAUDE.md §7 + panel.rs's anchor block), NOT magic numbers
+# inline per shot. The taskbar's anchored edge per era:
+#   Carbon    → TOP    (CARBON_BAR_H 32)              → top strip
+#   Win2000   → BOTTOM (TASKBAR_HEIGHT 28)            → bottom strip
+#   Windows10 → BOTTOM (WIN10_BAR_H 40, Win10 default)→ bottom strip
+#   BeOS      → LEFT   (~115px, vertical)             → left strip
+# (The worklist's "Win10 top" is a mislabel — the Win10 bar ships bottom; only the
+# opt-in Taskbar-location=top flips it. The crop targets the real anchored edge of
+# the 1280x960 headless output so the strip is never all desktop-color.)
+panel_crop() {
+    case "$1" in
+        carbon)    echo "0,0 1280x40"  ;;
+        win2000)   echo "0,920 1280x40" ;;
+        windows10) echo "0,920 1280x40" ;;
+        beos)      echo "0,0 120x960"  ;;
+        *)         echo "0,0 1280x40"  ;;
+    esac
+}
+
 # --- the gallery -------------------------------------------------------------
 # Clear any stale single-instance guards first: a leftover menu / Start process
 # from an earlier run holds its pid slot, which makes that capture come back
@@ -116,21 +136,21 @@ shot setup            setup --gui
 # Sandbox the theme via XDG_CONFIG_HOME so we never touch the user's real
 # menu.json (state.rs::config_path honours it). BeOS is theme=win2000 + the Haiku
 # icon set (main.rs maps that pair to Theme::Beos); the rest are direct theme
-# keys. Panel anchor differs per era, so the crop does too: Carbon → top 32px,
-# Win2000/Windows10 → bottom (Win10 a taller 40px bar), BeOS → left 115px.
+# keys. The taskbar's anchored edge differs per era, so the crop does too — that
+# mapping lives in panel_crop() (off the §7 anchor table), not inline here.
 echo "gallery: capturing era parity (carbon · win2000 · windows10 · beos)…"
 era_cfg="$(mktemp -d)"; mkdir -p "$era_cfg/mde"
 export XDG_CONFIG_HOME="$era_cfg"
-for era in "carbon:carbon::0,0 1280x40" \
-           "win2000:win2000::0,920 1280x40" \
-           "windows10:windows10::0,920 1280x40" \
-           "beos:win2000:haiku:0,0 120x960"; do
-    IFS=: read -r label theme iconset pcrop <<< "$era"
+for era in "carbon:carbon:" \
+           "win2000:win2000:" \
+           "windows10:windows10:" \
+           "beos:win2000:haiku"; do
+    IFS=: read -r label theme iconset <<< "$era"
     # Each era's captures land in their own subdir: captures/gallery/<era>/ (E20.3).
     dest="$out/$label"
     printf '{"theme":"%s","theme_mode":"dark","icon_set":"%s"}\n' "$theme" "$iconset" \
         > "$era_cfg/mde/menu.json"
-    shot "panel" --crop "$pcrop" panel
+    shot "panel" --crop "$(panel_crop "$label")" panel
     shot "menu"  menu
     shot "files" files "$HOME"
     # The Win10 tiled Start only exists in the Windows 10 era. Seed a few tiles
