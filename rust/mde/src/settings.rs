@@ -973,6 +973,12 @@ struct Settings {
     /// confirmation, and the text the user has typed so far.
     recovery_pending: Option<RecoveryAction>,
     recovery_typed: String,
+    /// Recovery ▸ Create a recovery drive (E17.10): the wizard sub-view flag, the
+    /// chosen target device, the "back up system files" option, and the erase confirm.
+    recovery_usb: bool,
+    usb_device: Option<String>,
+    usb_backup: bool,
+    confirm_usb: bool,
     /// Accounts ▸ Family & other users (E10.4): the enumerated local accounts,
     /// (re)read on each visit to that page.
     accounts: Vec<crate::sysinfo::Account>,
@@ -1167,6 +1173,14 @@ enum Message {
     RecoveryTyped(String),
     CancelRecovery,
     ConfirmRecovery,
+    // Recovery ▸ Create a recovery drive (E17.10).
+    ShowUsb,
+    BackFromUsb,
+    SetUsbDevice(String),
+    ToggleUsbBackup(bool),
+    AskCreateUsb,
+    CancelCreateUsb,
+    ConfirmCreateUsb,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -1267,6 +1281,22 @@ pub fn run(args: &[String]) -> ExitCode {
             }
             return ExitCode::SUCCESS;
         }
+        // `--usb-drive --device <dev> [--dry-run]` (E17.10): write the recovery image
+        // to a device. Dry-run prints the exact `dd` command without writing (CI-safe).
+        // `--usb-drive` with no device falls through to the GUI wizard below.
+        if args.iter().any(|a| a == "--usb-drive") {
+            if let Some(i) = args.iter().position(|a| a == "--device") {
+                if let Some(dev) = args.get(i + 1) {
+                    let cmd = crate::sysinfo::recovery_drive_cmd(dev);
+                    if args.iter().any(|a| a == "--dry-run") {
+                        println!("pkexec {}", cmd.join(" "));
+                    } else {
+                        let _ = std::process::Command::new("pkexec").args(&cmd).status();
+                    }
+                    return ExitCode::SUCCESS;
+                }
+            }
+        }
     }
     if args.iter().any(|a| a == "--list") {
         return list();
@@ -1332,7 +1362,10 @@ pub fn run(args: &[String]) -> ExitCode {
     } else {
         String::new()
     };
-    match gui(initial_cat, initial_page, initial_search) {
+    // `mde settings recovery --usb-drive` (no device) opens straight into the
+    // Create-recovery-drive wizard (E17.10).
+    let start_usb = args.iter().any(|a| a == "recovery") && args.iter().any(|a| a == "--usb-drive");
+    match gui(initial_cat, initial_page, initial_search, start_usb) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("mde settings: {e}");
@@ -1406,7 +1439,12 @@ fn list() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> iced::Result {
+fn gui(
+    initial: Option<usize>,
+    initial_page: usize,
+    initial_search: String,
+    start_usb: bool,
+) -> iced::Result {
     iced::application(|_: &Settings| "Settings - mde".to_string(), update, view)
         .theme(|_| mde_ui::palette::iced_theme())
         .window_size(iced::Size::new(940.0, 640.0))
@@ -1527,6 +1565,11 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                     _ => None,
                 },
                 recovery_typed: String::new(),
+                recovery_usb: start_usb
+                    || std::env::var("MDE_RECOVERY_VIEW").as_deref() == Ok("usb"),
+                usb_device: None,
+                usb_backup: true,
+                confirm_usb: false,
                 accounts: Vec::new(),
                 new_user: String::new(),
                 confirm_remove: None,
@@ -2212,6 +2255,36 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
             state.recovery_pending = None;
             state.recovery_typed.clear();
         }
+        // Recovery ▸ Create a recovery drive (E17.10).
+        Message::ShowUsb => state.recovery_usb = true,
+        Message::BackFromUsb => {
+            state.recovery_usb = false;
+            state.confirm_usb = false;
+        }
+        Message::SetUsbDevice(d) => state.usb_device = Some(d),
+        Message::ToggleUsbBackup(on) => state.usb_backup = on,
+        Message::AskCreateUsb => {
+            if state.usb_device.is_some() {
+                state.confirm_usb = true;
+            }
+        }
+        Message::CancelCreateUsb => state.confirm_usb = false,
+        Message::ConfirmCreateUsb => {
+            state.confirm_usb = false;
+            if let Some(dev) = state.usb_device.clone() {
+                let cmd = crate::sysinfo::recovery_drive_cmd(&dev);
+                return Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let _ = std::process::Command::new("pkexec").args(&cmd).status();
+                        })
+                        .await
+                        .ok();
+                    },
+                    |_| Message::Noop,
+                );
+            }
+        }
         Message::ConfirmRecovery => {
             if let Some(a) = state.recovery_pending {
                 if state.recovery_typed.trim() == a.confirm_word() {
@@ -2473,6 +2546,10 @@ fn maybe_load(state: &mut Settings) -> Task<Message> {
         }
         // Backup reuses the storage breakdown for its candidate-drive list (E17.6).
         Some(Kind::Backup) if state.storage.is_none() => storage_load_task(),
+        // The Create-recovery-drive wizard needs the device list too (E17.10).
+        Some(Kind::Recovery) if state.recovery_usb && state.storage.is_none() => {
+            storage_load_task()
+        }
         _ => Task::none(),
     }
 }
@@ -5073,6 +5150,9 @@ fn backup_more_page(state: &Settings) -> Element<'_, Message> {
 /// Update & Security ▸ Recovery (E17.9): Reset this PC (keep / remove), Restart to
 /// firmware, and Uninstall updates — each behind a typed confirmation.
 fn recovery_page(state: &Settings) -> Element<'_, Message> {
+    if state.recovery_usb {
+        return usb_wizard(state);
+    }
     if let Some(a) = state.recovery_pending {
         return recovery_confirm(state, a);
     }
@@ -5137,7 +5217,155 @@ fn recovery_page(state: &Settings) -> Element<'_, Message> {
             "Roll back the most recent dnf transaction if an update caused problems.",
             "Uninstall updates",
             RecoveryAction::UninstallUpdates,
-        ));
+        ))
+        .push(
+            Column::new()
+                .spacing(3.0)
+                .push(
+                    text("Create a recovery drive")
+                        .size(metrics::UI_PX)
+                        .color(palette::color(palette::WINDOW_TEXT)),
+                )
+                .push(
+                    text("Write a bootable rescue image to a USB drive to repair or reinstall.")
+                        .size(metrics::BADGE_PX)
+                        .color(palette::color(palette::GRAY_TEXT)),
+                )
+                .push(
+                    button(text("Create a recovery drive").size(metrics::UI_PX))
+                        .on_press(Message::ShowUsb)
+                        .padding(Padding::from([4.0, 12.0]))
+                        .style(mde_ui::button_ghost),
+                ),
+        );
+
+    scrollable(col).style(mde_ui::scrollbar).into()
+}
+
+/// Recovery ▸ Create a recovery drive wizard (E17.10): pick a removable device,
+/// "back up system files", an erase-warning confirm, then write the rescue image.
+fn usb_wizard(state: &Settings) -> Element<'_, Message> {
+    let back = button(text("\u{2190} Recovery").size(metrics::UI_PX))
+        .on_press(Message::BackFromUsb)
+        .padding(Padding::from([3.0, 10.0]))
+        .style(mde_ui::button_ghost);
+
+    let mut col = Column::new()
+        .spacing(12.0)
+        .push(back)
+        .push(
+            text("Create a recovery drive")
+                .size(metrics::INFO_TITLE_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(
+            text("Choose a USB drive. Everything on it will be erased.")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::STATUS_WARN)),
+        );
+
+    // Device picker (the live filesystems' distinct devices).
+    if let Some(u) = &state.storage {
+        let mut seen: Vec<String> = Vec::new();
+        for m in &u.mounts {
+            if seen.contains(&m.source) {
+                continue;
+            }
+            seen.push(m.source.clone());
+            let dev = m.source.clone();
+            let chosen = state.usb_device.as_deref() == Some(m.source.as_str());
+            col =
+                col.push(
+                    button(
+                        Column::new()
+                            .push(text(m.source.clone()).size(metrics::UI_PX).color(
+                                palette::color(if chosen {
+                                    palette::HIGHLIGHT_TEXT
+                                } else {
+                                    palette::WINDOW_TEXT
+                                }),
+                            ))
+                            .push(
+                                text(format!(
+                                    "{} · mounted at {}",
+                                    crate::sysinfo::human_bytes(m.total),
+                                    m.target
+                                ))
+                                .size(metrics::BADGE_PX)
+                                .color(palette::color(palette::GRAY_TEXT)),
+                            ),
+                    )
+                    .on_press(Message::SetUsbDevice(dev))
+                    .width(Length::Fill)
+                    .padding(Padding::from([5.0, 8.0]))
+                    .style(if chosen {
+                        mde_ui::button_primary
+                    } else {
+                        mde_ui::button_ghost
+                    }),
+                );
+        }
+    } else {
+        col = col.push(
+            text("Reading drives…")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+    }
+
+    col = col.push(
+        checkbox("Back up system files to the drive", state.usb_backup)
+            .on_toggle(Message::ToggleUsbBackup)
+            .size(metrics::UI_PX)
+            .text_size(metrics::UI_PX)
+            .spacing(8.0)
+            .style(mde_ui::checkbox_style),
+    );
+
+    // Create / erase-warning confirm.
+    if state.confirm_usb {
+        let dev = state.usb_device.clone().unwrap_or_default();
+        col = col
+            .push(
+                text(format!(
+                    "Erase {dev} and write the recovery image? The command:"
+                ))
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::STATUS_RISK)),
+            )
+            .push(
+                text(format!(
+                    "pkexec {}",
+                    crate::sysinfo::recovery_drive_cmd(&dev).join(" ")
+                ))
+                .size(metrics::BADGE_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+            )
+            .push(
+                Row::new()
+                    .spacing(8.0)
+                    .push(
+                        button(text("Erase and create").size(metrics::UI_PX))
+                            .on_press(Message::ConfirmCreateUsb)
+                            .padding(Padding::from([4.0, 14.0]))
+                            .style(mde_ui::button_primary),
+                    )
+                    .push(
+                        button(text("Cancel").size(metrics::UI_PX))
+                            .on_press(Message::CancelCreateUsb)
+                            .padding(Padding::from([4.0, 12.0]))
+                            .style(mde_ui::button_ghost),
+                    ),
+            );
+    } else {
+        let mut create = button(text("Create").size(metrics::UI_PX))
+            .padding(Padding::from([4.0, 16.0]))
+            .style(mde_ui::button_primary);
+        if state.usb_device.is_some() {
+            create = create.on_press(Message::AskCreateUsb);
+        }
+        col = col.push(create);
+    }
 
     scrollable(col).style(mde_ui::scrollbar).into()
 }

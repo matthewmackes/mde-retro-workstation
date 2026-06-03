@@ -843,6 +843,23 @@ pub fn uninstall_updates_cmd() -> Vec<String> {
     ]
 }
 
+/// The shipped recovery/rescue image written to a USB drive (E17.10).
+pub const RECOVERY_ISO: &str = "/usr/share/mde/recovery.iso";
+
+/// "Create a recovery drive" — image the rescue ISO onto `device` with `dd` (E17.10).
+/// Returns the `pkexec` argv. Pure. (`dd` is always present; `livecd-iso-to-disk`
+/// isn't, so the raw image write is the portable choice.)
+pub fn recovery_drive_cmd(device: &str) -> Vec<String> {
+    vec![
+        "dd".into(),
+        format!("if={RECOVERY_ISO}"),
+        format!("of={device}"),
+        "bs=4M".into(),
+        "status=progress".into(),
+        "oflag=sync".into(),
+    ]
+}
+
 // --- headless entry point --------------------------------------------------
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -921,6 +938,17 @@ tmpfs             16000000000            0  16000000000 /run/user/1000
         assert_eq!(
             uninstall_updates_cmd(),
             vec!["dnf", "history", "undo", "last", "-y"]
+        );
+        assert_eq!(
+            recovery_drive_cmd("/dev/sdb"),
+            vec![
+                "dd",
+                "if=/usr/share/mde/recovery.iso",
+                "of=/dev/sdb",
+                "bs=4M",
+                "status=progress",
+                "oflag=sync"
+            ]
         );
     }
 
