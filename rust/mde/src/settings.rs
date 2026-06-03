@@ -574,6 +574,9 @@ struct Settings {
     /// Accounts ▸ Family & other users (E10.4): the enumerated local accounts,
     /// (re)read on each visit to that page.
     accounts: Vec<crate::sysinfo::Account>,
+    /// E10.5: the "add a user" name field + the login pending a remove-confirm.
+    new_user: String,
+    confirm_remove: Option<String>,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -664,6 +667,14 @@ enum Message {
     DisplayName(String),
     BrowseAvatar,
     AvatarBrowsed(Option<String>),
+    // Accounts ▸ Family & other users (E10.5).
+    NewUser(String),
+    AddUser,
+    ToggleAdmin(String),
+    AskRemove(String),
+    CancelRemove,
+    ConfirmRemove(String),
+    AccountsReloaded,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -838,6 +849,8 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 display_name: st.display_name.clone(),
                 account_picture: st.account_picture.clone(),
                 accounts: Vec::new(),
+                new_user: String::new(),
+                confirm_remove: None,
                 usage: Vec::new(),
                 data_limit: if st.data_limit_mb > 0 {
                     st.data_limit_mb.to_string()
@@ -1175,8 +1188,52 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
             }
         }
         Message::AvatarBrowsed(None) => {}
+        Message::NewUser(n) => state.new_user = n,
+        Message::AddUser => {
+            let name = crate::sysinfo::sanitize_login(&state.new_user);
+            if name.is_empty() {
+                return Task::none();
+            }
+            state.new_user.clear();
+            return pkexec_then_reload(crate::sysinfo::useradd_cmd(&name));
+        }
+        Message::ToggleAdmin(name) => {
+            let is_admin = state.accounts.iter().any(|a| a.name == name && a.admin);
+            // Guard: never demote the last administrator.
+            if is_admin && crate::sysinfo::admin_count(&state.accounts) <= 1 {
+                return Task::none();
+            }
+            return pkexec_then_reload(crate::sysinfo::set_admin_cmd(&name, !is_admin));
+        }
+        Message::AskRemove(name) => state.confirm_remove = Some(name),
+        Message::CancelRemove => state.confirm_remove = None,
+        Message::ConfirmRemove(name) => {
+            state.confirm_remove = None;
+            // Guard: never delete the signed-in account.
+            if name == std::env::var("USER").unwrap_or_default() {
+                return Task::none();
+            }
+            return pkexec_then_reload(crate::sysinfo::userdel_cmd(&name));
+        }
+        Message::AccountsReloaded => state.accounts = crate::sysinfo::accounts(),
     }
     Task::none()
+}
+
+/// Run a privileged user-management command via `pkexec` (raising the polkit
+/// prompt) off the UI thread, then refresh the account list once it finishes so
+/// the page reflects what actually changed (E10.5).
+fn pkexec_then_reload(args: Vec<String>) -> Task<Message> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let _ = std::process::Command::new("pkexec").args(&args).status();
+            })
+            .await
+            .ok();
+        },
+        |_| Message::AccountsReloaded,
+    )
 }
 
 /// The privileged script (`pkexec sh -c`) that sets the dnf-automatic `reboot`
@@ -2282,12 +2339,15 @@ fn account_info_page(state: &Settings) -> Element<'_, Message> {
         .into()
 }
 
-/// Accounts ▸ Family & other users (E10.4): the real local-account list (read from
-/// `/etc/passwd`, UID ≥ 1000), each row a user glyph + name/login + an
-/// Administrator/Standard badge from `wheel` membership. Add/Change/Remove land in
-/// E10.5 — this page is the read-only enumeration.
+/// Accounts ▸ Family & other users (E10.4 list + E10.5 management): the real
+/// local-account list (`/etc/passwd`, UID ≥ 1000) with an Administrator/Standard
+/// badge from `wheel`. Other accounts gain **Make admin/standard** + **Remove**
+/// buttons driving `pkexec usermod`/`gpasswd`/`userdel`; the signed-in account and
+/// the last administrator are guarded (no self-delete, no last-admin demote). An
+/// **Add a user** field runs `pkexec useradd`. Remove asks an inline confirm first.
 fn family_users_page(state: &Settings) -> Element<'_, Message> {
     let me = std::env::var("USER").unwrap_or_default();
+    let admins = crate::sysinfo::admin_count(&state.accounts);
     let mut list = Column::new().spacing(4.0);
     for a in &state.accounts {
         let (badge, badge_col) = if a.admin {
@@ -2295,12 +2355,13 @@ fn family_users_page(state: &Settings) -> Element<'_, Message> {
         } else {
             ("Standard user", palette::color(palette::GRAY_TEXT))
         };
-        let sub = if a.name == me {
+        let is_me = a.name == me;
+        let sub = if is_me {
             format!("{} — signed in", a.name)
         } else {
             a.name.clone()
         };
-        let row = Row::new()
+        let mut row = Row::new()
             .spacing(10.0)
             .align_y(iced::alignment::Vertical::Center)
             .push(
@@ -2335,24 +2396,105 @@ fn family_users_page(state: &Settings) -> Element<'_, Message> {
                         ..container::Style::default()
                     }),
             );
+        // Management actions on *other* accounts only (never the signed-in user).
+        if !is_me {
+            // Demoting the last admin is blocked — render the button inert.
+            let demote_locked = a.admin && admins <= 1;
+            let toggle_label = if a.admin {
+                "Make standard"
+            } else {
+                "Make admin"
+            };
+            let mut toggle = button(text(toggle_label).size(metrics::UI_PX))
+                .padding(Padding::from([3.0, 10.0]))
+                .style(tile_style);
+            if !demote_locked {
+                toggle = toggle.on_press(Message::ToggleAdmin(a.name.clone()));
+            }
+            row = row.push(toggle).push(
+                button(text("Remove").size(metrics::UI_PX))
+                    .on_press(Message::AskRemove(a.name.clone()))
+                    .padding(Padding::from([3.0, 10.0]))
+                    .style(tile_style),
+            );
+        }
         list = list.push(container(row).padding(Padding::from([6.0, 4.0])));
     }
     let body: Element<Message> = if state.accounts.is_empty() {
-        text("No other accounts on this PC.")
+        text("No accounts found on this PC.")
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT))
             .into()
     } else {
         scrollable(list).style(mde_ui::scrollbar).into()
     };
-    Column::new()
-        .spacing(10.0)
+
+    let mut col = Column::new().spacing(10.0).push(
+        text("People who use this PC")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::WINDOW_TEXT)),
+    );
+
+    // Inline remove-confirm banner (in place of a separate dialogs.rs window — keeps
+    // the flow inside the Settings surface and headless-capturable; §6 best-choice).
+    if let Some(name) = &state.confirm_remove {
+        col = col.push(
+            container(
+                Column::new()
+                    .spacing(8.0)
+                    .push(
+                        text(format!("Delete {name} and all of their data?"))
+                            .size(metrics::UI_PX)
+                            .color(palette::color(palette::WINDOW_TEXT)),
+                    )
+                    .push(
+                        Row::new()
+                            .spacing(8.0)
+                            .push(
+                                button(text("Delete account").size(metrics::UI_PX))
+                                    .on_press(Message::ConfirmRemove(name.clone()))
+                                    .padding(Padding::from([4.0, 12.0]))
+                                    .style(tile_style),
+                            )
+                            .push(
+                                button(text("Cancel").size(metrics::UI_PX))
+                                    .on_press(Message::CancelRemove)
+                                    .padding(Padding::from([4.0, 12.0]))
+                                    .style(tile_style),
+                            ),
+                    ),
+            )
+            .padding(10.0)
+            .style(|_| container::Style {
+                border: Border {
+                    color: palette::accent(),
+                    width: 1.0,
+                    radius: 2.0.into(),
+                },
+                ..container::Style::default()
+            }),
+        );
+    }
+
+    col.push(container(body).height(Length::Fill))
         .push(
-            text("People who use this PC")
-                .size(metrics::UI_PX)
-                .color(palette::color(palette::WINDOW_TEXT)),
+            Row::new()
+                .spacing(8.0)
+                .align_y(iced::alignment::Vertical::Center)
+                .push(
+                    text_input("Add a user…", &state.new_user)
+                        .on_input(Message::NewUser)
+                        .on_submit(Message::AddUser)
+                        .size(metrics::UI_PX)
+                        .width(Length::Fixed(220.0)),
+                )
+                .push(
+                    button(text("Add account").size(metrics::UI_PX))
+                        .on_press(Message::AddUser)
+                        .padding(Padding::from([4.0, 12.0]))
+                        .style(tile_style),
+                ),
         )
-        .push(container(body).height(Length::Fill))
         .into()
 }
 

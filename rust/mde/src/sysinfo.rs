@@ -320,12 +320,61 @@ pub fn parse_passwd(passwd: &str, wheel: &[String]) -> Vec<Account> {
 
 /// Live enumeration of human accounts from `/etc/passwd` + `/etc/group` (matches
 /// `getent passwd` for the local files). Sorted by login name for a stable list.
+/// The two paths are overridable via `MDE_PASSWD_PATH`/`MDE_GROUP_PATH` so the
+/// gallery/preview harness can render a deterministic multi-account list from
+/// real passwd-format fixture files (still real parsing, no demo data).
 pub fn accounts() -> Vec<Account> {
-    let group = std::fs::read_to_string("/etc/group").unwrap_or_default();
-    let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+    let passwd = std::env::var("MDE_PASSWD_PATH").unwrap_or_else(|_| "/etc/passwd".into());
+    let group = std::env::var("MDE_GROUP_PATH").unwrap_or_else(|_| "/etc/group".into());
+    let group = std::fs::read_to_string(group).unwrap_or_default();
+    let passwd = std::fs::read_to_string(passwd).unwrap_or_default();
     let mut a = parse_passwd(&passwd, &parse_wheel(&group));
     a.sort_by(|x, y| x.name.cmp(&y.name));
     a
+}
+
+/// How many of these accounts are administrators (`wheel`).
+pub fn admin_count(accounts: &[Account]) -> usize {
+    accounts.iter().filter(|a| a.admin).count()
+}
+
+/// Coerce arbitrary text into a valid Linux login (E10.5 Add user): lower-case,
+/// keep `[a-z0-9_-]`, must begin with a letter, capped at 32 chars. Empty when
+/// nothing usable remains — the caller refuses to run `useradd` on an empty name.
+pub fn sanitize_login(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.trim().to_lowercase().chars() {
+        let ok = c.is_ascii_lowercase()
+            || c == '_'
+            || (!out.is_empty() && (c.is_ascii_digit() || c == '-'));
+        if ok {
+            out.push(c);
+        }
+        if out.len() >= 32 {
+            break;
+        }
+    }
+    out
+}
+
+/// `useradd -m <name>` argv (E10.5). `-m` creates the home dir; the password is
+/// set separately on Sign-in options (E10.6), so the account starts locked.
+pub fn useradd_cmd(name: &str) -> Vec<String> {
+    vec!["useradd".into(), "-m".into(), name.into()]
+}
+
+/// argv to grant (`usermod -aG wheel`) or revoke (`gpasswd -d … wheel`) admin (E10.5).
+pub fn set_admin_cmd(name: &str, admin: bool) -> Vec<String> {
+    if admin {
+        vec!["usermod".into(), "-aG".into(), "wheel".into(), name.into()]
+    } else {
+        vec!["gpasswd".into(), "-d".into(), name.into(), "wheel".into()]
+    }
+}
+
+/// `userdel -r <name>` argv (E10.5) — `-r` also removes the home dir and mail spool.
+pub fn userdel_cmd(name: &str) -> Vec<String> {
+    vec!["userdel".into(), "-r".into(), name.into()]
 }
 
 // --- CLI probes ------------------------------------------------------------
@@ -485,5 +534,35 @@ mod tests {
         let guest = &users[2];
         assert_eq!(guest.full, "Guest User");
         assert!(!guest.admin); // not in wheel → Standard
+    }
+
+    #[test]
+    fn admin_count_counts_wheel() {
+        let users = parse_passwd(PASSWD, &parse_wheel(GROUP));
+        assert_eq!(admin_count(&users), 2); // ada + grace
+        assert_eq!(admin_count(&[]), 0);
+    }
+
+    #[test]
+    fn sanitize_login_makes_valid_names() {
+        assert_eq!(sanitize_login("Ada Lovelace"), "adalovelace");
+        assert_eq!(sanitize_login("  Bob_99  "), "bob_99");
+        assert_eq!(sanitize_login("9lives"), "lives"); // can't start with a digit
+        assert_eq!(sanitize_login("-dash"), "dash"); // can't start with a dash
+        assert_eq!(sanitize_login("!!!"), ""); // nothing usable
+    }
+
+    #[test]
+    fn account_command_argv() {
+        assert_eq!(useradd_cmd("bob"), ["useradd", "-m", "bob"]);
+        assert_eq!(
+            set_admin_cmd("bob", true),
+            ["usermod", "-aG", "wheel", "bob"]
+        );
+        assert_eq!(
+            set_admin_cmd("bob", false),
+            ["gpasswd", "-d", "bob", "wheel"]
+        );
+        assert_eq!(userdel_cmd("bob"), ["userdel", "-r", "bob"]);
     }
 }
