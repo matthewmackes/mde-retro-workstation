@@ -37,11 +37,20 @@
 - **Q26 KDE Connect → `MDE-KDECnt-Rust` is canonical.** The monorepo depends on the
   extracted proto+host crate; MDE's in-tree `mde-kdc` host converges onto it. (The
   in-progress host 3b work is already on the canonical path.)
-- **Q40 Workbench → RE-SKIN to a Win10 "Computer Management" look.** The Workbench
-  adopts the Win10/Carbon theme + widgets — **one visual language across the whole
-  product.** *Implication:* unify on the MDE-Retro `mde-ui` flat-Carbon widget kit;
-  the 43 Workbench panels get re-themed (resolves Q23/Q24 → single design system,
-  not coexisting Material).
+- **Q40 Workbench → RE-SKIN: Windows-10 design concepts in the Microsoft Server
+  2003 "Manage Your Server" mold, wearing the platform's color + icon theme.**
+  *(Refined by owner 2026-06-03.)* The Workbench is a **task/role-oriented admin
+  console** — the "Manage Your Server" pattern: a left nav (the 9 groups / 43
+  panels) + a main pane of **role/section cards**, each with a heading, a short
+  descriptive paragraph, and **action links** ("Add…", "Manage…", "Configure…"),
+  plus a "Tools / See also" sidebar — rendered with **Win10 design concepts** (flat
+  surfaces, accent, the Win10 control idiom). It **inherits the overall platform's
+  color theme** (the `palette::color` Carbon/Win10 palette — no separate Material
+  palette) **and icon theme** (the platform icon set via `icon_any`). *Implications:*
+  unify on the MDE-Retro `mde-ui` flat-Carbon widget kit + palette + icons across
+  both surfaces (resolves Q23/Q24 → one design system); the 43 Workbench panels are
+  re-laid-out into the role-card/action-link "Manage Your Server" structure, not just
+  re-colored. Keep the Material/ChromeOS-Classic content OUT.
 - **Q1 Repo → MONOREPO.** One cargo workspace absorbs MDE's platform crates +
   MDE-Retro's shell + the Workbench as members. The existing repos become upstream
   history. (This is the final home for *this* plan once the repo exists.)
