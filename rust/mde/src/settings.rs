@@ -966,6 +966,12 @@ enum Message {
 }
 
 pub fn run(args: &[String]) -> ExitCode {
+    // `mde settings storage --list` — headless storage breakdown for the live root
+    // device (E17.3). Checked before the generic `--list` (category map) below.
+    if args.iter().any(|a| a == "storage") && args.iter().any(|a| a == "--list") {
+        crate::sysinfo::print_storage_list();
+        return ExitCode::SUCCESS;
+    }
     if args.iter().any(|a| a == "--list") {
         return list();
     }

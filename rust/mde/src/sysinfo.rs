@@ -411,6 +411,186 @@ fn lsblk_disks() -> Vec<String> {
     lines_of("lsblk", &["-dno", "NAME,SIZE,MODEL"])
 }
 
+// --- storage usage (Settings ▸ System ▸ Storage, E17.3) --------------------
+
+/// One mounted filesystem's space, in bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mount {
+    pub source: String, // device node
+    pub target: String, // mountpoint
+    pub total: u64,
+    pub used: u64,
+    pub avail: u64,
+}
+
+/// A Win10-style storage breakdown category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    Apps,
+    Documents,
+    Pictures,
+    Videos,
+    Temporary,
+    System,
+}
+
+impl Category {
+    pub fn label(self) -> &'static str {
+        match self {
+            Category::Apps => "Apps & features",
+            Category::Documents => "Documents",
+            Category::Pictures => "Pictures",
+            Category::Videos => "Videos",
+            Category::Temporary => "Temporary files",
+            Category::System => "System & reserved",
+        }
+    }
+}
+
+/// The full breakdown: real-device mounts + per-category bytes on the root device.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StorageUsage {
+    pub mounts: Vec<Mount>,
+    pub categories: Vec<(Category, u64)>,
+}
+
+/// Parse `df -B1 --output=source,size,used,avail,target` (a header line then one
+/// row per filesystem). Pure — unit-tested. The mountpoint is the rest of the line,
+/// so paths with spaces survive.
+pub fn parse_df(out: &str) -> Vec<Mount> {
+    out.lines()
+        .skip(1) // header row
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            let source = it.next()?.to_string();
+            let total: u64 = it.next()?.parse().ok()?;
+            let used: u64 = it.next()?.parse().ok()?;
+            let avail: u64 = it.next()?.parse().ok()?;
+            let target = it.collect::<Vec<_>>().join(" ");
+            (!target.is_empty()).then_some(Mount {
+                source,
+                target,
+                total,
+                used,
+                avail,
+            })
+        })
+        .collect()
+}
+
+/// Sum the byte sizes from `rpm -qa --qf '%{SIZE}\n'`. Pure — unit-tested.
+pub fn parse_rpm_sizes(out: &str) -> u64 {
+    out.lines()
+        .filter_map(|l| l.trim().parse::<u64>().ok())
+        .sum()
+}
+
+/// Real block-device mounts (drop pseudo/virtual filesystems by keeping only
+/// `/dev/*` sources), via `df`.
+pub fn mounts() -> Vec<Mount> {
+    let out =
+        cmd_line("df", &["-B1", "--output=source,size,used,avail,target"]).unwrap_or_default();
+    parse_df(&out)
+        .into_iter()
+        .filter(|m| m.source.starts_with("/dev/"))
+        .collect()
+}
+
+/// `du -sb <path>` in bytes; 0 when the directory is missing or unreadable.
+fn dir_bytes(path: &str) -> u64 {
+    cmd_line("du", &["-sb", path])
+        .and_then(|s| s.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Total installed-package footprint, via `rpm`.
+fn apps_bytes() -> u64 {
+    parse_rpm_sizes(&cmd_line("rpm", &["-qa", "--qf", "%{SIZE}\n"]).unwrap_or_default())
+}
+
+fn home_dir(sub: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
+    format!("{home}/{sub}")
+}
+
+/// Per-category bytes on the root device. `System` is the remainder of the root
+/// `used` after the measurable categories (never negative).
+pub fn category_bytes(root_used: u64) -> Vec<(Category, u64)> {
+    let apps = apps_bytes();
+    let docs = dir_bytes(&home_dir("Documents"));
+    let pics = dir_bytes(&home_dir("Pictures"));
+    let vids = dir_bytes(&home_dir("Videos"));
+    let temp = dir_bytes(&home_dir(".cache"));
+    let counted = apps
+        .saturating_add(docs)
+        .saturating_add(pics)
+        .saturating_add(vids)
+        .saturating_add(temp);
+    let system = root_used.saturating_sub(counted);
+    vec![
+        (Category::Apps, apps),
+        (Category::Documents, docs),
+        (Category::Pictures, pics),
+        (Category::Videos, vids),
+        (Category::Temporary, temp),
+        (Category::System, system),
+    ]
+}
+
+/// The live storage breakdown for the root device.
+pub fn storage_usage() -> StorageUsage {
+    let mounts = mounts();
+    let root_used = mounts
+        .iter()
+        .find(|m| m.target == "/")
+        .map(|m| m.used)
+        .unwrap_or(0);
+    StorageUsage {
+        categories: category_bytes(root_used),
+        mounts,
+    }
+}
+
+/// Human-readable bytes (binary units), e.g. "1.5 GB".
+pub fn human_bytes(b: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = b as f64;
+    let mut u = 0;
+    while v >= 1024.0 && u < UNITS.len() - 1 {
+        v /= 1024.0;
+        u += 1;
+    }
+    if u == 0 {
+        format!("{b} B")
+    } else {
+        format!("{v:.1} {}", UNITS[u])
+    }
+}
+
+/// `mde settings storage --list` — print the live breakdown.
+pub fn print_storage_list() {
+    let u = storage_usage();
+    println!("Drives:");
+    for m in &u.mounts {
+        let pct = if m.total > 0 {
+            (m.used as f64 / m.total as f64 * 100.0).round() as u64
+        } else {
+            0
+        };
+        println!(
+            "  {:<14} {} used / {} total ({pct}% full) on {}",
+            m.source,
+            human_bytes(m.used),
+            human_bytes(m.total),
+            m.target,
+        );
+    }
+    println!("Categories (root device):");
+    for (cat, bytes) in &u.categories {
+        println!("  {:<18} {}", cat.label(), human_bytes(*bytes));
+    }
+}
+
 // --- headless entry point --------------------------------------------------
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -445,6 +625,39 @@ pub fn run(args: &[String]) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn df_parses_rows_and_keeps_spaced_mountpoints() {
+        let out = "\
+Filesystem        1B-blocks         Used        Avail Mounted on
+/dev/nvme0n1p3  500000000000 200000000000 300000000000 /
+/dev/nvme0n1p1     500000000     50000000    450000000 /boot/efi
+tmpfs             16000000000            0  16000000000 /run/user/1000
+/dev/sda1       1000000000000 400000000000 600000000000 /mnt/My Backup
+";
+        let m = parse_df(out);
+        assert_eq!(m.len(), 4);
+        assert_eq!(m[0].source, "/dev/nvme0n1p3");
+        assert_eq!(m[0].target, "/");
+        assert_eq!(m[0].total, 500_000_000_000);
+        assert_eq!(m[0].used, 200_000_000_000);
+        // A mountpoint with a space survives.
+        assert_eq!(m[3].target, "/mnt/My Backup");
+    }
+
+    #[test]
+    fn rpm_sizes_sum_and_ignore_junk() {
+        assert_eq!(parse_rpm_sizes("100\n200\n\n4096\n"), 4396);
+        assert_eq!(parse_rpm_sizes("(none)\nabc\n50\n"), 50);
+        assert_eq!(parse_rpm_sizes(""), 0);
+    }
+
+    #[test]
+    fn human_bytes_scales() {
+        assert_eq!(human_bytes(512), "512 B");
+        assert_eq!(human_bytes(1536), "1.5 KB");
+        assert_eq!(human_bytes(5_368_709_120), "5.0 GB");
+    }
 
     #[test]
     fn set_auto_command_sets_timer_and_apply_updates() {
