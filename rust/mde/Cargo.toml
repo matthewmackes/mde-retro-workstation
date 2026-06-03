@@ -43,6 +43,13 @@ tokio = { version = "1", features = ["rt"] }
 # ~/.config/mde/pin.hash — never plaintext, never a hand-rolled digest. Pure Rust,
 # no C/openssl; `std` (default) brings the OsRng salt source via password-hash.
 argon2 = "0.5"
+# Firefox "Recent" jump list (E18.4): read the top history rows from the browser's
+# `places.sqlite`. `bundled` compiles SQLite in, so there is no runtime sqlite3
+# dependency and the read is fully self-contained. Only `browser.rs` uses it,
+# read-only, on a copy-to-temp opened `?immutable=1` (Firefox holds a write lock).
+# NB: this is the one C-compiled crate (cf. the otherwise pure-Rust text/TLS stack)
+# — a deliberate, user-approved choice for a robust embedded reader.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
 # Accuracy harness (tests/accuracy.rs): decode grim PNG captures and parse the

@@ -25,13 +25,23 @@ pub fn run(_args: &[String]) -> ExitCode {
     }
 }
 
-/// The Firefox jump-list entries: Tasks (New / New Private window) then a footer
-/// that launches the browser. E18.4 inserts the Recent section between them.
+/// The Firefox jump-list entries: Tasks (New / New Private window), then the Recent
+/// section (top history from `places.sqlite`, E18.4), then a footer that launches
+/// the browser. The Recent section omits itself cleanly when there's no profile or
+/// the read fails.
 fn items() -> Vec<Item> {
-    vec![
+    let mut v = vec![
         Item::new("New Window", "firefox --new-window"),
         Item::new("New Private Window", "firefox --private-window"),
-        sep(),
-        Item::new("Firefox", "firefox"),
-    ]
+    ];
+    let recent = crate::browser::recent_sites();
+    if !recent.is_empty() {
+        v.push(sep());
+        for (title, url) in recent {
+            v.push(Item::new(title, crate::browser::open_url_cmd(&url)));
+        }
+    }
+    v.push(sep());
+    v.push(Item::new("Firefox", "firefox"));
+    v
 }

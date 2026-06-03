@@ -222,6 +222,10 @@ fn main() -> ExitCode {
             cups::debug_list();
             ExitCode::SUCCESS
         }
+        "__places-recent" => {
+            browser::debug_recent(rest);
+            ExitCode::SUCCESS
+        }
         "__mouse-rc" => {
             mouse::debug_apply();
             ExitCode::SUCCESS
