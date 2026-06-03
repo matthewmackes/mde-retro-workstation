@@ -147,6 +147,33 @@ for era in "carbon:carbon::0,0 1280x40" \
         # The Personalization ▸ Start settings page, incl. the E7.8a "Choose which
         # folders appear on Start" chooser.
         shot "settings-start" --wait 2.6 settings personalization --page start
+        # Devices pages (E12.11): the native Settings ▸ Devices surfaces. Re-seed a
+        # clean Win10 menu.json; a few env seams populate the data-driven pages
+        # deterministically (the same MDE_CUPS_FIXTURE / MDE_TOUCHPAD seams the
+        # per-page benches use), so the gallery never depends on host hardware.
+        printf '{"theme":"windows10","theme_mode":"dark"}\n' > "$era_cfg/mde/menu.json"
+        shot "settings-devices-mouse"     --wait 2.6 settings devices --page mouse
+        shot "settings-devices-typing"    --wait 2.6 settings devices --page typing
+        shot "settings-devices-autoplay"  --wait 2.6 settings devices --page autoplay
+        shot "settings-devices-bluetooth" --wait 2.6 settings devices --page bluetooth
+        # Touchpad is a conditional page (hidden with no touchpad) — force one on so
+        # it appears in the rail and renders its controls.
+        export MDE_TOUCHPAD=1
+        shot "settings-devices-touchpad"  --wait 2.6 settings devices --page touchpad
+        unset MDE_TOUCHPAD
+        # Printers — a fixture gives a populated, default-marked list + the permanent
+        # Print to PDF row, without needing a real CUPS queue.
+        cat > "$era_cfg/cups.txt" <<'CUPS'
+printer Office_LaserJet is idle.  enabled since Mon
+	Description: HP LaserJet Pro M404
+printer Cups-PDF is idle.  enabled since Mon
+	Description: Print to PDF
+CUPS
+        export MDE_CUPS_FIXTURE="$era_cfg/cups.txt" MDE_CUPS_DEFAULT=Office_LaserJet MDE_CUPS_PDF=Cups-PDF
+        shot "settings-devices-printers"  --wait 2.6 settings devices --page printers
+        unset MDE_CUPS_FIXTURE MDE_CUPS_DEFAULT MDE_CUPS_PDF
+        # Project pane (E12.10) — the Win+P projection flyout.
+        shot "project"                    --wait 2.6 project
         # Seed two notifications (swaync owns the live bus here, so the daemon
         # can't run) to exercise the Action Center pane grouping + Clear x's.
         now=$(date +%s)
