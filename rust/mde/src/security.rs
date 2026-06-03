@@ -21,6 +21,8 @@ enum Pane {
     Firewall,
     Encryption,
     Antivirus,
+    DeviceSecurity,
+    AppBrowser,
 }
 
 struct Security {
@@ -49,6 +51,7 @@ enum Message {
     KeyBackedUp(String, Option<String>), // (device, chosen save path)
     QuickScan,
     InstallAv,
+    Launch(&'static str), // spawn a learn/launch target for an advisory page
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -65,6 +68,8 @@ pub fn run(args: &[String]) -> ExitCode {
         "firewall" => Some(Pane::Firewall),
         "encryption" => Some(Pane::Encryption),
         "antivirus" => Some(Pane::Antivirus),
+        "device-security" => Some(Pane::DeviceSecurity),
+        "app-browser" => Some(Pane::AppBrowser),
         _ => None,
     });
     let r = iced::application(|_: &Security| "Windows Security".to_string(), update, view)
@@ -98,6 +103,8 @@ pub fn run(args: &[String]) -> ExitCode {
                     Vec::new(),
                     Some(security_probe::antivirus_version()),
                 ),
+                // DeviceSecurity / AppBrowser render from `status` — no extra load.
+                Some(p @ (Pane::DeviceSecurity | Pane::AppBrowser)) => (p, None, Vec::new(), None),
                 _ => (Pane::Home, None, Vec::new(), None),
             };
             (
@@ -170,6 +177,9 @@ fn update(state: &mut Security, message: Message) -> Task<Message> {
             let _ = std::process::Command::new("pkexec")
                 .args(["dnf", "install", "-y", "clamav", "clamav-update"])
                 .spawn();
+        }
+        Message::Launch(cmd) => {
+            let _ = std::process::Command::new("sh").arg("-c").arg(cmd).spawn();
         }
     }
     Task::none()
@@ -283,7 +293,101 @@ fn view(state: &Security) -> Element<'_, Message> {
         Pane::Firewall => firewall_view(state.fw.as_ref()),
         Pane::Encryption => encryption_view(state),
         Pane::Antivirus => antivirus_view(state.av.as_ref()),
+        Pane::DeviceSecurity => device_security_view(s),
+        Pane::AppBrowser => app_browser_view(),
     }
+}
+
+/// A back-button header for a detail page.
+fn detail_header(title: &'static str) -> Column<'static, Message> {
+    Column::new()
+        .spacing(10.0)
+        .push(
+            button(text("← Back").size(metrics::UI_PX))
+                .on_press(Message::Back)
+                .padding(Padding::from([4.0, 12.0]))
+                .style(mde_ui::button_ghost),
+        )
+        .push(
+            text(title)
+                .size(metrics::INFO_TITLE_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+}
+
+/// A read-only status row (glyph + label + status), no toggle (§3 advisory).
+fn ro_row<'a>(t: &Tile) -> Element<'a, Message> {
+    let (mark, role) = level_mark(t.level);
+    Row::new()
+        .spacing(8.0)
+        .align_y(iced::alignment::Vertical::Center)
+        .push(
+            text(mark)
+                .font(mde_ui::font::NERD)
+                .size(metrics::BUTTON_GLYPH_PX)
+                .color(palette::color(role)),
+        )
+        .push(
+            Column::new()
+                .push(
+                    text(t.title.clone())
+                        .size(metrics::UI_PX)
+                        .color(palette::color(palette::WINDOW_TEXT)),
+                )
+                .push(
+                    text(t.status.clone())
+                        .size(metrics::BADGE_PX)
+                        .color(palette::color(palette::GRAY_TEXT)),
+                ),
+        )
+        .into()
+}
+
+/// Device security (E14.9): Secure Boot + TPM, read-only (their values come from
+/// firmware), with a learn link. No fake toggles.
+fn device_security_view(s: &SecurityStatus) -> Element<'_, Message> {
+    detail_header("Device security")
+        .push(ro_row(&s.secureboot))
+        .push(ro_row(&s.tpm))
+        .push(
+            text("These reflect your firmware. Change Secure Boot or the TPM in your UEFI setup.")
+                .size(metrics::BADGE_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        )
+        .push(
+            button(text("Open firmware help").size(metrics::UI_PX))
+                .on_press(Message::Launch(
+                    "xdg-open https://fedoraproject.org/wiki/Features/SecureBoot",
+                ))
+                .padding(Padding::from([4.0, 12.0]))
+                .style(mde_ui::button_primary),
+        )
+        .padding(Padding::from(16.0))
+        .into()
+}
+
+/// App & browser control (E14.9): advisory — reputation-based protection is the
+/// browser's, with a link to open its settings. No fake toggles.
+fn app_browser_view() -> Element<'static, Message> {
+    detail_header("App & browser control")
+        .push(
+            text("Reputation-based protection (SmartScreen-style) is handled by your browser.")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(
+            text("Open your browser's Privacy & Security settings to review it.")
+                .size(metrics::BADGE_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        )
+        .push(
+            button(text("Open browser settings").size(metrics::UI_PX))
+                .on_press(Message::Launch("firefox 'about:preferences#privacy'"))
+                .padding(Padding::from([4.0, 12.0]))
+                .style(mde_ui::button_primary),
+        )
+        .padding(Padding::from(16.0))
+        .into()
 }
 
 fn home_view(s: &SecurityStatus) -> Element<'_, Message> {
@@ -298,10 +402,10 @@ fn home_view(s: &SecurityStatus) -> Element<'_, Message> {
     let tiles: [(&'static str, &Tile, Option<Pane>); 6] = [
         ("\u{f188}", &s.antivirus, Some(Pane::Antivirus)),
         ("\u{f132}", &s.firewall, Some(Pane::Firewall)),
-        ("\u{f0ac}", &advisory, None),
+        ("\u{f0ac}", &advisory, Some(Pane::AppBrowser)),
         ("\u{f023}", &s.encryption, Some(Pane::Encryption)),
-        ("\u{f084}", &s.secureboot, None),
-        ("\u{f2db}", &s.tpm, None),
+        ("\u{f084}", &s.secureboot, Some(Pane::DeviceSecurity)),
+        ("\u{f2db}", &s.tpm, Some(Pane::DeviceSecurity)),
     ];
 
     let mut grid = Column::new().spacing(12.0);
