@@ -122,10 +122,11 @@ enum Message {
     ActionCenter,
     TaskView,
     Search,
-    JumpList(String), // app_id, for the Win10 right-click jump list (E2.6)
-    NetFlyout,        // Win10 network flyout (E15.3)
-    Reveal,           // auto-hide: pointer entered the strip → expand (E2.9a)
-    Unreveal,         // auto-hide: pointer left the bar → collapse to 1px
+    JumpList(String),          // app_id, for the Win10 right-click jump list (E2.6)
+    QuickLaunchContext(usize), // pin index, for the Win10 Quick-Launch right-click (E18.6)
+    NetFlyout,                 // Win10 network flyout (E15.3)
+    Reveal,                    // auto-hide: pointer entered the strip → expand (E2.9a)
+    Unreveal,                  // auto-hide: pointer left the bar → collapse to 1px
 }
 
 pub fn run(_args: &[String]) -> ExitCode {
@@ -435,6 +436,13 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
         Message::Search => push_child(state, spawn_child(&["search"])),
         // Right-click jump list for a taskbar app button (E2.6).
         Message::JumpList(app_id) => push_child(state, spawn_child(&["jumplist", &app_id])),
+        // Right-click a Win10 Quick-Launch pin → the browser jump list (E18.6). The
+        // seeded pin is the default browser; `--pin <idx>` identifies which pin. The
+        // child is reaped by the per-tick `try_wait` sweep above, like other popups.
+        Message::QuickLaunchContext(idx) => push_child(
+            state,
+            spawn_child(&["browser-jumplist", "--pin", &idx.to_string()]),
+        ),
         Message::NetFlyout => push_child(state, spawn_child(&["net-flyout"])),
         // Toggle the Start menu: open it if closed, close it if already open.
         // Owning the child (instead of fire-and-forget spawning) is what stops
@@ -949,8 +957,8 @@ fn view_win10(state: &Panel) -> Element<'_, Message> {
 
     // Quick Launch: pinned apps as icon buttons (E18.5; the default browser is
     // seeded under Win10 via `effective_pinned`).
-    for item in &state.pinned {
-        bar = bar.push(win10_pin_button(item));
+    for (i, item) in state.pinned.iter().enumerate() {
+        bar = bar.push(win10_pin_button(i, item));
     }
 
     for w in &state.windows {
@@ -1057,8 +1065,8 @@ fn win10_task_button(w: &wlr::Window) -> Element<'_, Message> {
 }
 
 /// A Win10 Quick-Launch pin: the app icon, launching the pinned command on click
-/// (E18.5). Right-click on the default-browser pin opens its jump list (E18.6).
-fn win10_pin_button(item: &crate::state::PinnedItem) -> Element<'_, Message> {
+/// (E18.5). Right-click opens its jump list (E18.6); `idx` identifies the pin.
+fn win10_pin_button(idx: usize, item: &crate::state::PinnedItem) -> Element<'_, Message> {
     let icon_id = item.command.split_whitespace().next().unwrap_or("");
     let icon = container(crate::icons::icon_any(
         &[icon_id, "application-x-executable"],
@@ -1069,6 +1077,7 @@ fn win10_pin_button(item: &crate::state::PinnedItem) -> Element<'_, Message> {
     .center_y(Length::Fill);
     mouse_area(icon)
         .on_press(Message::Launch(item.command.clone()))
+        .on_right_press(Message::QuickLaunchContext(idx))
         .into()
 }
 

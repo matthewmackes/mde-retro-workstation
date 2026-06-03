@@ -10,12 +10,20 @@ use std::process::ExitCode;
 
 use crate::popup::{launch_with, sep, Item};
 
-pub fn run(_args: &[String]) -> ExitCode {
+pub fn run(args: &[String]) -> ExitCode {
     // No compositor → nothing to anchor to; exit cleanly (the popup is normally
     // spawned by the panel), matching popup.rs.
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {
         return ExitCode::SUCCESS;
     }
+    // `--pin <idx>` (E18.6) identifies which Quick-Launch pin was right-clicked.
+    // Accepted (validated) for forward-compat per-pin anchoring; the popup currently
+    // edge-anchors near the taskbar (the pin sits there on the Win10 bottom bar).
+    let _pin = args
+        .iter()
+        .position(|a| a == "--pin")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse::<usize>().ok());
     match launch_with(items()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
