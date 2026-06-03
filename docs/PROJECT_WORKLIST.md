@@ -122,10 +122,18 @@ confirmed; full table in `docs/COMPLIANCE.md`). All 14 resolved this pass:**
   `kdeconnect.identity` announce on a timer, and folds inbound announces into the proto
   `DiscoveryRegistry`, emitting `PeerDiscovered`/`PeerLost`; address-cached for the TCP
   connect; `ingest`/`prune` unit-tested with an injected clock + a hermetic two-instance
-  loopback round-trip of `run` (15 tests). Remaining: [ ] host increment 3b — the rustls
-  TCP pairing handshake (`Transport::open` against a discovered peer) + router that ties
-  discovery + connections onto the event stream; [ ] push MDE-KDECnt-Rust + rewire MDE-Retro
-  to depend on it (git dep); [ ] `mde connect`
+  loopback round-trip of `run` (15 tests). **✓ host increment 3b.1** (crate commit
+  `5c32819`, owner-authorized 2026-06-03 — *flagged for adversarial audit*): the crypto
+  foundation of the TLS handshake, **ported from the `/tmp/MDE-guidance` reference host
+  crate** (not invented) — `keygen.rs` (RSA-2048 PKCS#8 via the `rsa` crate + `issue_identity_cert`
+  binding a self-signed X.509 cert, CN=device-id, to the same keypair via `rcgen 0.13`) and
+  `tls.rs` (SHA-256 `compute_fingerprint`, `PinnedFingerprintVerifier`/`FirstPairVerifier`
+  rustls `ServerCertVerifier`s for KDE Connect's pin-at-first-pair model, `build_client_config`
+  on the ring provider, and `connect_pinned_tls` the live tokio-rustls TLS-over-TCP connect).
+  34 host tests pass, fmt+clippy clean. Remaining: [ ] host increment **3b.2** — wire
+  `connect_pinned_tls` into a `LanTransport` + router (`Transport::open` against a discovered
+  peer, TCP listener for inbound, tie discovery + connections onto the event stream);
+  [ ] push MDE-KDECnt-Rust + rewire MDE-Retro to depend on it (git dep); [ ] `mde connect`
   systemd user daemon + pairing modal/tray; [ ] capability surfaces (notifications
   bidirectional + a freedesktop notify daemon, clipboard, battery, file transfer via
   Explorer "Send to", MPRIS, run-commands, SMS); [ ] "Mobile Devices" Control Panel
