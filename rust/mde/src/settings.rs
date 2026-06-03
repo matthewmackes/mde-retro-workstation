@@ -1152,6 +1152,10 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::SUCCESS;
             }
         }
+        // `--restore` opens the File-History snapshot restore browser (E17.8).
+        if args.iter().any(|a| a == "--restore") {
+            return crate::restore::run(args);
+        }
         // `--backup-now [--dry-run]` — create a Timeshift snapshot (E17.7). Dry-run
         // prints the exact privileged command without running it (CI-safe).
         if args.iter().any(|a| a == "--backup-now") {

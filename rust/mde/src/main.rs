@@ -46,6 +46,7 @@ mod panel;
 mod pin;
 mod popup;
 mod project;
+mod restore;
 mod search;
 mod security;
 mod security_probe;

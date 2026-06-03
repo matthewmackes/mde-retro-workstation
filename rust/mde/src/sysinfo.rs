@@ -695,6 +695,71 @@ pub fn timeshift_create_cmd() -> Vec<String> {
     vec!["timeshift".into(), "--create".into()]
 }
 
+/// One Timeshift snapshot (a restore point), E17.8.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    pub name: String, // the `YYYY-MM-DD_HH-MM-SS` id
+    pub desc: String, // optional comment
+}
+
+/// Parse `timeshift --list`'s snapshot rows: `Num > YYYY-MM-DD_HH-MM-SS Tags Desc`.
+/// Pure — unit-tested. Header/separator lines are skipped.
+pub fn parse_snapshots(out: &str) -> Vec<Snapshot> {
+    out.lines()
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            // A snapshot row starts with the index number.
+            it.next().filter(|n| n.parse::<u32>().is_ok())?;
+            let mut rest: Vec<&str> = it.collect();
+            if rest.first() == Some(&">") {
+                rest.remove(0);
+            }
+            let name = rest.first()?.to_string();
+            // The id is a timestamp; skip anything else (e.g. stray lines).
+            if !name.contains('-') || !name.contains('_') {
+                return None;
+            }
+            // rest[0]=name, rest[1]=tags, rest[2..]=description.
+            let desc = rest.get(2..).map(|s| s.join(" ")).unwrap_or_default();
+            Some(Snapshot { name, desc })
+        })
+        .collect()
+}
+
+/// `timeshift --restore --snapshot <name> --yes` — restore a snapshot to the
+/// original location (E17.8). Returns the argv (run via `pkexec`).
+pub fn timeshift_restore_cmd(name: &str) -> Vec<String> {
+    vec![
+        "timeshift".into(),
+        "--restore".into(),
+        "--snapshot".into(),
+        name.into(),
+        "--yes".into(),
+    ]
+}
+
+/// The Timeshift snapshots, newest first. `MDE_TIMESHIFT_FIXTURE` (a file of
+/// `timeshift --list` output) overrides for deterministic captures; otherwise
+/// `timeshift --list` is run (it needs root, so unprivileged sessions get an empty
+/// list — the browser then offers a privileged refresh).
+pub fn snapshots() -> Vec<Snapshot> {
+    if let Ok(path) = std::env::var("MDE_TIMESHIFT_FIXTURE") {
+        if let Ok(s) = std::fs::read_to_string(path) {
+            let mut v = parse_snapshots(&s);
+            v.reverse();
+            return v;
+        }
+    }
+    let out = Command::new("timeshift")
+        .arg("--list")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let mut v = parse_snapshots(&out);
+    v.reverse();
+    v
+}
+
 /// The backup-schedule `--user` units (service, timer) for an `OnCalendar=` value
 /// (E17.7). The service runs `mde settings backup --backup-now` (which pkexecs
 /// timeshift). Pure (unit-tested). Unattended runs need a polkit rule for
@@ -812,6 +877,33 @@ tmpfs             16000000000            0  16000000000 /run/user/1000
         assert!(service.contains("settings backup --backup-now"));
         assert!(timer.contains("OnCalendar=hourly"));
         assert!(timer.contains("WantedBy=timers.target"));
+    }
+
+    #[test]
+    fn snapshots_parse_and_restore_command() {
+        let out = "\
+Device : /dev/sda3
+Num     Name                 Tags  Description
+------------------------------------------------------------------------------
+0    >  2024-01-15_10-00-01  O
+1    >  2024-01-16_09-30-00  O     Before kernel update
+";
+        let s = parse_snapshots(out);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].name, "2024-01-15_10-00-01");
+        assert_eq!(s[0].desc, "");
+        assert_eq!(s[1].name, "2024-01-16_09-30-00");
+        assert_eq!(s[1].desc, "Before kernel update");
+        assert_eq!(
+            timeshift_restore_cmd("2024-01-15_10-00-01"),
+            vec![
+                "timeshift",
+                "--restore",
+                "--snapshot",
+                "2024-01-15_10-00-01",
+                "--yes"
+            ]
+        );
     }
 
     #[test]
