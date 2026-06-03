@@ -11,8 +11,11 @@
 //! (like `MDE_LOCK_CONF`) that also suppresses the live reconfigure, so a bench
 //! can verify the rewrite against a temp file without touching the real session.
 //! Headless entry: `mde __mouse-rc`.
+//!
+//! The rc.xml path resolution + atomic-write-and-reconfigure plumbing ([`rc_path`],
+//! [`write_rc`]) is shared with the keyboard config ([`crate::keyboard`], E12.8).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Touchpad (`category="touchpad"`) settings for the optional second `<device>`
 /// in the `<libinput>` block (E12.7). Only emitted when a touchpad is present.
@@ -120,8 +123,9 @@ pub fn rewrite_libinput(xml: &str, block: &str) -> String {
 }
 
 /// The rc.xml path: `MDE_LABWC_RC` if set (test seam), else
-/// `$XDG_CONFIG_HOME/labwc/rc.xml` (honouring `HOME` otherwise).
-fn rc_path() -> Option<PathBuf> {
+/// `$XDG_CONFIG_HOME/labwc/rc.xml` (honouring `HOME` otherwise). Shared with
+/// [`crate::keyboard`].
+pub(crate) fn rc_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("MDE_LABWC_RC") {
         return Some(PathBuf::from(p));
     }
@@ -131,9 +135,22 @@ fn rc_path() -> Option<PathBuf> {
     Some(base.join("labwc/rc.xml"))
 }
 
+/// Atomically write `content` to `path` (temp sibling + rename), then ask labwc to
+/// reload — unless `MDE_LABWC_RC` is set (a test, no live labwc to signal). Shared
+/// by the libinput (mouse/touchpad) and keyboard rewriters.
+pub(crate) fn write_rc(path: &Path, content: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension("xml.mde-tmp");
+    std::fs::write(&tmp, content.as_bytes())?;
+    std::fs::rename(&tmp, path)?;
+    if std::env::var_os("MDE_LABWC_RC").is_none() {
+        let _ = std::process::Command::new("labwc")
+            .arg("--reconfigure")
+            .status();
+    }
+    Ok(())
+}
+
 /// Write the mouse settings into rc.xml (atomic temp+rename), then reload labwc.
-/// The reconfigure is skipped under `MDE_LABWC_RC` (no live labwc to signal in a
-/// test). Returns the rc.xml path written, or `None` if there was nowhere to write.
 pub fn apply(
     left_handed: bool,
     natural_scroll: bool,
@@ -146,15 +163,7 @@ pub fn apply(
     let xml = std::fs::read_to_string(&path)?;
     let block = libinput_block(left_handed, natural_scroll, scroll_lines, touchpad);
     let out = rewrite_libinput(&xml, &block);
-    let tmp = path.with_extension("xml.mde-tmp");
-    std::fs::write(&tmp, out.as_bytes())?;
-    std::fs::rename(&tmp, &path)?;
-    if std::env::var_os("MDE_LABWC_RC").is_none() {
-        let _ = std::process::Command::new("labwc")
-            .arg("--reconfigure")
-            .status();
-    }
-    Ok(())
+    write_rc(&path, &out)
 }
 
 /// Headless exercise for `mde __mouse-rc`: apply the persisted mouse settings to

@@ -256,6 +256,24 @@ pub struct MenuState {
     /// (matches the Win10 touchpad default).
     #[serde(default = "def_true")]
     pub touchpad_natural_scroll: bool,
+    /// Devices ▸ Typing (E12.8): key-repeat rate (chars/sec) → labwc
+    /// `<keyboard><repeatRate>`. Default 25 (labwc's own default).
+    #[serde(default = "def_kb_repeat_rate")]
+    pub kb_repeat_rate: u32,
+    /// Key-repeat delay before repeat starts (ms) → `<keyboard><repeatDelay>`.
+    /// Default 600.
+    #[serde(default = "def_kb_repeat_delay")]
+    pub kb_repeat_delay: u32,
+    /// Keyboard layout (xkb code, e.g. "us") → `XKB_DEFAULT_LAYOUT` in labwc's
+    /// `environment` file; takes effect at next sign-in. Default "us".
+    #[serde(default = "def_kb_layout")]
+    pub kb_layout: String,
+    /// Typing advisory toggles (no labwc/Wayland backend in a non-IME shell) —
+    /// persisted, clearly labelled advisory. Both default on (match Win10).
+    #[serde(default = "def_true")]
+    pub typing_autocorrect: bool,
+    #[serde(default = "def_true")]
+    pub typing_suggestions: bool,
     /// Win10 taskbar search affordance: "button" (default), "box", or "hidden"
     /// (E2.9). All open `mde search`; "box" is a wider labelled pill.
     #[serde(default = "def_search_mode")]
@@ -307,6 +325,18 @@ fn def_scroll_lines() -> u8 {
 
 fn def_touchpad_speed() -> u8 {
     5
+}
+
+fn def_kb_repeat_rate() -> u32 {
+    25
+}
+
+fn def_kb_repeat_delay() -> u32 {
+    600
+}
+
+fn def_kb_layout() -> String {
+    "us".to_string()
 }
 
 fn def_true() -> bool {
@@ -368,6 +398,11 @@ impl Default for MenuState {
             touchpad_tap: true,
             touchpad_two_finger: true,
             touchpad_natural_scroll: true,
+            kb_repeat_rate: def_kb_repeat_rate(),
+            kb_repeat_delay: def_kb_repeat_delay(),
+            kb_layout: def_kb_layout(),
+            typing_autocorrect: true,
+            typing_suggestions: true,
             win10_search_mode: def_search_mode(),
             update_paused_until: 0,
             update_active_start: def_active_start(),
@@ -503,6 +538,11 @@ mod tests {
             touchpad_tap: false,
             touchpad_two_finger: false,
             touchpad_natural_scroll: false,
+            kb_repeat_rate: 40,
+            kb_repeat_delay: 300,
+            kb_layout: "gb".into(),
+            typing_autocorrect: false,
+            typing_suggestions: false,
             win10_search_mode: "box".into(),
             update_paused_until: 1_900_000_000,
             update_active_start: 9,

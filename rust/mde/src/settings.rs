@@ -188,6 +188,112 @@ impl std::fmt::Display for Lines {
     }
 }
 
+/// Devices ▸ Typing (E12.8): key-repeat rate as a 3-level pick_list → labwc
+/// `<repeatRate>` (chars/sec).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RepeatRate {
+    Slow,
+    Medium,
+    Fast,
+}
+impl RepeatRate {
+    const ALL: [RepeatRate; 3] = [RepeatRate::Slow, RepeatRate::Medium, RepeatRate::Fast];
+    fn rate(self) -> u32 {
+        match self {
+            RepeatRate::Slow => 10,
+            RepeatRate::Medium => 25,
+            RepeatRate::Fast => 40,
+        }
+    }
+    fn from_rate(r: u32) -> Self {
+        if r <= 15 {
+            RepeatRate::Slow
+        } else if r <= 32 {
+            RepeatRate::Medium
+        } else {
+            RepeatRate::Fast
+        }
+    }
+}
+impl std::fmt::Display for RepeatRate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            RepeatRate::Slow => "Slow",
+            RepeatRate::Medium => "Medium",
+            RepeatRate::Fast => "Fast",
+        })
+    }
+}
+
+/// Key-repeat delay as a 3-level pick_list → labwc `<repeatDelay>` (ms).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RepeatDelay {
+    Short,
+    Medium,
+    Long,
+}
+impl RepeatDelay {
+    const ALL: [RepeatDelay; 3] = [RepeatDelay::Short, RepeatDelay::Medium, RepeatDelay::Long];
+    fn delay(self) -> u32 {
+        match self {
+            RepeatDelay::Short => 300,
+            RepeatDelay::Medium => 600,
+            RepeatDelay::Long => 1000,
+        }
+    }
+    fn from_delay(d: u32) -> Self {
+        if d <= 450 {
+            RepeatDelay::Short
+        } else if d <= 800 {
+            RepeatDelay::Medium
+        } else {
+            RepeatDelay::Long
+        }
+    }
+}
+impl std::fmt::Display for RepeatDelay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            RepeatDelay::Short => "Short",
+            RepeatDelay::Medium => "Medium",
+            RepeatDelay::Long => "Long",
+        })
+    }
+}
+
+/// A keyboard-layout pick_list item — renders the friendly name, keyed by xkb code
+/// (E12.8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Layout {
+    code: &'static str,
+    name: &'static str,
+}
+impl Layout {
+    fn all() -> Vec<Layout> {
+        crate::keyboard::LAYOUTS
+            .iter()
+            .map(|(code, name)| Layout { code, name })
+            .collect()
+    }
+    /// The `Layout` for a stored code, falling back to the first entry (US).
+    fn for_code(code: &str) -> Layout {
+        crate::keyboard::LAYOUTS
+            .iter()
+            .find(|(c, _)| *c == code)
+            .or_else(|| crate::keyboard::LAYOUTS.first())
+            .map(|(code, name)| Layout { code, name })
+            .unwrap_or(Layout {
+                code: "us",
+                name: "English (US)",
+            })
+    }
+}
+impl std::fmt::Display for Layout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name)
+    }
+}
+
 const COLS: usize = 4;
 
 /// What a settings page does when opened.
@@ -245,6 +351,8 @@ enum Kind {
     Mouse,
     /// The native Devices ▸ Touchpad page (E12.7): conditional on a touchpad.
     Touchpad,
+    /// The native Devices ▸ Typing page (E12.8): labwc keyboard repeat + layout.
+    Typing,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -318,7 +426,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "Typing",
-                kind: Kind::Deferred,
+                kind: Kind::Typing,
             },
             Page {
                 title: "AutoPlay",
@@ -649,6 +757,14 @@ struct Settings {
     touchpad_tap: bool,
     touchpad_two_finger: bool,
     touchpad_natural_scroll: bool,
+    /// Devices ▸ Typing (E12.8): mirror of the menu.json keyboard prefs. Rate/delay
+    /// rewrite rc.xml's `<keyboard>`; layout writes the labwc `environment` file;
+    /// the two typing toggles are advisory (menu.json only).
+    kb_repeat_rate: u32,
+    kb_repeat_delay: u32,
+    kb_layout: String,
+    typing_autocorrect: bool,
+    typing_suggestions: bool,
     /// Accounts ▸ Family & other users (E10.4): the enumerated local accounts,
     /// (re)read on each visit to that page.
     accounts: Vec<crate::sysinfo::Account>,
@@ -795,6 +911,12 @@ enum Message {
     SetTouchpadTap(bool),
     SetTouchpadTwoFinger(bool),
     SetTouchpadNatural(bool),
+    // Devices ▸ Typing (E12.8).
+    SetRepeatRate(RepeatRate),
+    SetRepeatDelay(RepeatDelay),
+    SetKbLayout(Layout),
+    SetAutocorrect(bool),
+    SetSuggestions(bool),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -904,6 +1026,7 @@ fn list() -> ExitCode {
                 Kind::Printers => "(native: Printers & scanners)".to_string(),
                 Kind::Mouse => "(native: Mouse)".to_string(),
                 Kind::Touchpad => "(native: Touchpad)".to_string(),
+                Kind::Typing => "(native: Typing)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -1001,6 +1124,11 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 touchpad_tap: st.touchpad_tap,
                 touchpad_two_finger: st.touchpad_two_finger,
                 touchpad_natural_scroll: st.touchpad_natural_scroll,
+                kb_repeat_rate: st.kb_repeat_rate,
+                kb_repeat_delay: st.kb_repeat_delay,
+                kb_layout: st.kb_layout.clone(),
+                typing_autocorrect: st.typing_autocorrect,
+                typing_suggestions: st.typing_suggestions,
                 accounts: Vec::new(),
                 new_user: String::new(),
                 confirm_remove: None,
@@ -1476,6 +1604,30 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         Message::SetTouchpadNatural(on) => {
             state.touchpad_natural_scroll = on;
             apply_libinput(state);
+        }
+        // Devices ▸ Typing (E12.8) — rate/delay rewrite rc.xml's <keyboard>; layout
+        // writes the labwc environment file (next sign-in); the two toggles are
+        // advisory (persisted only).
+        Message::SetRepeatRate(r) => {
+            state.kb_repeat_rate = r.rate();
+            apply_keyboard(state);
+        }
+        Message::SetRepeatDelay(d) => {
+            state.kb_repeat_delay = d.delay();
+            apply_keyboard(state);
+        }
+        Message::SetKbLayout(l) => {
+            state.kb_layout = l.code.to_string();
+            persist(state);
+            let _ = crate::keyboard::apply_layout(l.code);
+        }
+        Message::SetAutocorrect(on) => {
+            state.typing_autocorrect = on;
+            persist(state);
+        }
+        Message::SetSuggestions(on) => {
+            state.typing_suggestions = on;
+            persist(state);
         }
         // Keep PIN entry to digits (a Windows-style numeric PIN), capped at 8.
         Message::Pin1(p) => {
@@ -1998,6 +2150,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Printers
         | Kind::Mouse
         | Kind::Touchpad
+        | Kind::Typing
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -2061,6 +2214,11 @@ fn persist(state: &Settings) {
     st.touchpad_tap = state.touchpad_tap;
     st.touchpad_two_finger = state.touchpad_two_finger;
     st.touchpad_natural_scroll = state.touchpad_natural_scroll;
+    st.kb_repeat_rate = state.kb_repeat_rate;
+    st.kb_repeat_delay = state.kb_repeat_delay;
+    st.kb_layout = state.kb_layout.clone();
+    st.typing_autocorrect = state.typing_autocorrect;
+    st.typing_suggestions = state.typing_suggestions;
     st.update_paused_until = state.update_paused_until;
     st.update_active_start = state.active_start;
     st.update_active_end = state.active_end;
@@ -2093,6 +2251,14 @@ fn apply_libinput(state: &Settings) {
         state.mouse_scroll_lines,
         tp.as_ref(),
     );
+}
+
+/// Persist the keyboard prefs, then push the repeat rate/delay into labwc's
+/// `<keyboard>` block and reconfigure (E12.8). Layout is applied separately (it
+/// goes to the environment file, not rc.xml).
+fn apply_keyboard(state: &Settings) {
+    persist(state);
+    let _ = crate::keyboard::apply_repeat(state.kb_repeat_rate, state.kb_repeat_delay);
 }
 
 // --- view ------------------------------------------------------------------
@@ -2348,6 +2514,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Printers => printers_page(state),
         Kind::Mouse => mouse_page(state),
         Kind::Touchpad => touchpad_page(state),
+        Kind::Typing => typing_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -3559,6 +3726,92 @@ fn touchpad_page(state: &Settings) -> Element<'_, Message> {
             state.touchpad_natural_scroll,
             Message::SetTouchpadNatural,
         ))
+        .into()
+}
+
+/// Devices ▸ Typing (E12.8): keyboard layout (→ labwc `environment`, next sign-in),
+/// key-repeat rate + delay (→ `<keyboard>` live), and advisory autocorrect /
+/// suggestion toggles (menu.json only — no IME backend in this shell).
+fn typing_page(state: &Settings) -> Element<'_, Message> {
+    let label = |t: &'static str| {
+        text(t)
+            .size(metrics::UI_PX)
+            .width(Length::Fixed(150.0))
+            .color(palette::color(palette::WINDOW_TEXT))
+    };
+    let row = |lbl: &'static str, control: Element<'static, Message>| {
+        Row::new()
+            .spacing(8.0)
+            .align_y(iced::alignment::Vertical::Center)
+            .push(label(lbl))
+            .push(control)
+    };
+
+    let layout_row = Row::new()
+        .spacing(8.0)
+        .align_y(iced::alignment::Vertical::Center)
+        .push(label("Keyboard layout"))
+        .push(
+            pick_list(
+                Layout::all(),
+                Some(Layout::for_code(&state.kb_layout)),
+                Message::SetKbLayout,
+            )
+            .text_size(metrics::UI_PX),
+        )
+        .push(
+            text("Takes effect at next sign-in")
+                .size(metrics::BADGE_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+
+    let rate = pick_list(
+        RepeatRate::ALL.to_vec(),
+        Some(RepeatRate::from_rate(state.kb_repeat_rate)),
+        Message::SetRepeatRate,
+    )
+    .text_size(metrics::UI_PX);
+    let delay = pick_list(
+        RepeatDelay::ALL.to_vec(),
+        Some(RepeatDelay::from_delay(state.kb_repeat_delay)),
+        Message::SetRepeatDelay,
+    )
+    .text_size(metrics::UI_PX);
+
+    let adv = |lbl: &'static str, checked: bool, msg: fn(bool) -> Message| {
+        checkbox(lbl, checked)
+            .on_toggle(msg)
+            .size(metrics::UI_PX)
+            .text_size(metrics::UI_PX)
+            .spacing(8.0)
+            .style(mde_ui::checkbox_style)
+    };
+
+    Column::new()
+        .spacing(14.0)
+        .push(layout_row)
+        .push(row("Repeat rate", rate.into()))
+        .push(row("Repeat delay", delay.into()))
+        .push(
+            text("Spelling")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        )
+        .push(adv(
+            "Autocorrect misspelled words",
+            state.typing_autocorrect,
+            Message::SetAutocorrect,
+        ))
+        .push(adv(
+            "Show text suggestions as I type",
+            state.typing_suggestions,
+            Message::SetSuggestions,
+        ))
+        .push(
+            text("Spelling preferences are saved for apps that support them.")
+                .size(metrics::BADGE_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        )
         .into()
 }
 

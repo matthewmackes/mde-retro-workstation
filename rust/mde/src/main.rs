@@ -31,6 +31,7 @@ mod greeter;
 mod icons;
 mod install;
 mod installer;
+mod keyboard;
 mod lock;
 mod menu;
 mod mount;
@@ -216,6 +217,10 @@ fn main() -> ExitCode {
         }
         "__mouse-rc" => {
             mouse::debug_apply();
+            ExitCode::SUCCESS
+        }
+        "__kbd-rc" => {
+            keyboard::debug_apply();
             ExitCode::SUCCESS
         }
         "__nm-list" => {
