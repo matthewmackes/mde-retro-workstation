@@ -14,6 +14,7 @@ use std::process::ExitCode;
 mod about;
 mod action_center;
 mod apps;
+mod autoplay;
 mod bluez;
 mod browser;
 mod browser_jumplist;
@@ -90,6 +91,7 @@ COMMANDS:
     security         Windows Security dashboard (firewall/encryption/AV/TPM posture)
     greeter [--css|--conf [BG]]   Emit the LightDM Win10 greeter theme (palette-sourced)
     clipboard daemon|--list   Clipboard history watcher (wl-paste) + 25-entry ring
+    devices-monitor   AutoPlay: open removable media in Files on mount (udisks2)
     snip [rect|full]   Region/full screenshot → ~/Pictures/Screenshots + clipboard
     taskbar-properties   Taskbar and Start Menu Properties
     setup [--tui|--gui|--dry-run]   Install/configure MDE-Retro
@@ -197,6 +199,7 @@ fn main() -> ExitCode {
         "pin" => pin::run(rest),
         "greeter" => greeter::run(rest),
         "clipboard" => clipboard::run(rest),
+        "devices-monitor" => autoplay::run(rest),
         "snip" => snip::run(rest),
         "taskbar-properties" => taskbar_properties::run(rest),
         "__wlr-list" => {

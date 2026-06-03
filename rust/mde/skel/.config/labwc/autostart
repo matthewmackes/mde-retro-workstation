@@ -13,6 +13,10 @@ nm-applet --indicator &
 # that the Win+V history popup (mde clipboard) reads. Lockfile-idempotent.
 mde clipboard daemon &
 
+# AutoPlay (E12.9): watches udisks2 for removable media and opens it in Files on
+# mount, per Settings ▸ Devices ▸ AutoPlay. No-ops when AutoPlay is off.
+mde devices-monitor &
+
 # On-screen volume/brightness bar daemon (optional). If swayosd is installed the
 # media keys (wired in rc.xml) show a Win2000-style OSD; harmless if absent.
 command -v swayosd-server >/dev/null 2>&1 && swayosd-server &

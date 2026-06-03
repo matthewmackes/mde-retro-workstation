@@ -274,6 +274,16 @@ pub struct MenuState {
     pub typing_autocorrect: bool,
     #[serde(default = "def_true")]
     pub typing_suggestions: bool,
+    /// Devices ▸ AutoPlay (E12.9): master "use AutoPlay for all media" toggle.
+    /// Default on (matches Win10). Read by `mde devices-monitor`.
+    #[serde(default = "def_true")]
+    pub autoplay_enabled: bool,
+    /// AutoPlay action per media type: "open" (in Files) | "ask" | "nothing".
+    /// Defaults open.
+    #[serde(default = "def_autoplay_action")]
+    pub autoplay_removable: String,
+    #[serde(default = "def_autoplay_action")]
+    pub autoplay_memcard: String,
     /// Win10 taskbar search affordance: "button" (default), "box", or "hidden"
     /// (E2.9). All open `mde search`; "box" is a wider labelled pill.
     #[serde(default = "def_search_mode")]
@@ -337,6 +347,10 @@ fn def_kb_repeat_delay() -> u32 {
 
 fn def_kb_layout() -> String {
     "us".to_string()
+}
+
+fn def_autoplay_action() -> String {
+    "open".to_string()
 }
 
 fn def_true() -> bool {
@@ -403,6 +417,9 @@ impl Default for MenuState {
             kb_layout: def_kb_layout(),
             typing_autocorrect: true,
             typing_suggestions: true,
+            autoplay_enabled: true,
+            autoplay_removable: def_autoplay_action(),
+            autoplay_memcard: def_autoplay_action(),
             win10_search_mode: def_search_mode(),
             update_paused_until: 0,
             update_active_start: def_active_start(),
@@ -543,6 +560,9 @@ mod tests {
             kb_layout: "gb".into(),
             typing_autocorrect: false,
             typing_suggestions: false,
+            autoplay_enabled: false,
+            autoplay_removable: "ask".into(),
+            autoplay_memcard: "nothing".into(),
             win10_search_mode: "box".into(),
             update_paused_until: 1_900_000_000,
             update_active_start: 9,

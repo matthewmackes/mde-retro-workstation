@@ -261,6 +261,41 @@ impl std::fmt::Display for RepeatDelay {
     }
 }
 
+/// Devices ▸ AutoPlay (E12.9): the per-media-type action pick_list, mapping to the
+/// `crate::autoplay::Action` keys persisted in menu.json.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutoAction {
+    Open,
+    Ask,
+    Nothing,
+}
+impl AutoAction {
+    const ALL: [AutoAction; 3] = [AutoAction::Open, AutoAction::Ask, AutoAction::Nothing];
+    fn key(self) -> &'static str {
+        match self {
+            AutoAction::Open => "open",
+            AutoAction::Ask => "ask",
+            AutoAction::Nothing => "nothing",
+        }
+    }
+    fn from_key(s: &str) -> AutoAction {
+        match s {
+            "ask" => AutoAction::Ask,
+            "nothing" => AutoAction::Nothing,
+            _ => AutoAction::Open,
+        }
+    }
+}
+impl std::fmt::Display for AutoAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            AutoAction::Open => "Open folder to view files",
+            AutoAction::Ask => "Ask me what to do",
+            AutoAction::Nothing => "Take no action",
+        })
+    }
+}
+
 /// A keyboard-layout pick_list item — renders the friendly name, keyed by xkb code
 /// (E12.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,6 +388,8 @@ enum Kind {
     Touchpad,
     /// The native Devices ▸ Typing page (E12.8): labwc keyboard repeat + layout.
     Typing,
+    /// The native Devices ▸ AutoPlay page (E12.9): removable-media defaults.
+    AutoPlay,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -430,7 +467,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "AutoPlay",
-                kind: Kind::Deferred,
+                kind: Kind::AutoPlay,
             },
         ],
     },
@@ -765,6 +802,11 @@ struct Settings {
     kb_layout: String,
     typing_autocorrect: bool,
     typing_suggestions: bool,
+    /// Devices ▸ AutoPlay (E12.9): master toggle + per-type actions. Persisted to
+    /// menu.json; `mde devices-monitor` re-reads them on each mount event.
+    autoplay_enabled: bool,
+    autoplay_removable: AutoAction,
+    autoplay_memcard: AutoAction,
     /// Accounts ▸ Family & other users (E10.4): the enumerated local accounts,
     /// (re)read on each visit to that page.
     accounts: Vec<crate::sysinfo::Account>,
@@ -917,6 +959,10 @@ enum Message {
     SetKbLayout(Layout),
     SetAutocorrect(bool),
     SetSuggestions(bool),
+    // Devices ▸ AutoPlay (E12.9).
+    SetAutoplayEnabled(bool),
+    SetAutoplayRemovable(AutoAction),
+    SetAutoplayMemcard(AutoAction),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -1027,6 +1073,7 @@ fn list() -> ExitCode {
                 Kind::Mouse => "(native: Mouse)".to_string(),
                 Kind::Touchpad => "(native: Touchpad)".to_string(),
                 Kind::Typing => "(native: Typing)".to_string(),
+                Kind::AutoPlay => "(native: AutoPlay)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -1129,6 +1176,9 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 kb_layout: st.kb_layout.clone(),
                 typing_autocorrect: st.typing_autocorrect,
                 typing_suggestions: st.typing_suggestions,
+                autoplay_enabled: st.autoplay_enabled,
+                autoplay_removable: AutoAction::from_key(&st.autoplay_removable),
+                autoplay_memcard: AutoAction::from_key(&st.autoplay_memcard),
                 accounts: Vec::new(),
                 new_user: String::new(),
                 confirm_remove: None,
@@ -1627,6 +1677,20 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         }
         Message::SetSuggestions(on) => {
             state.typing_suggestions = on;
+            persist(state);
+        }
+        // Devices ▸ AutoPlay (E12.9) — persist only; `mde devices-monitor` re-reads
+        // menu.json on each mount event, so no live action is needed here.
+        Message::SetAutoplayEnabled(on) => {
+            state.autoplay_enabled = on;
+            persist(state);
+        }
+        Message::SetAutoplayRemovable(a) => {
+            state.autoplay_removable = a;
+            persist(state);
+        }
+        Message::SetAutoplayMemcard(a) => {
+            state.autoplay_memcard = a;
             persist(state);
         }
         // Keep PIN entry to digits (a Windows-style numeric PIN), capped at 8.
@@ -2151,6 +2215,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Mouse
         | Kind::Touchpad
         | Kind::Typing
+        | Kind::AutoPlay
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -2219,6 +2284,9 @@ fn persist(state: &Settings) {
     st.kb_layout = state.kb_layout.clone();
     st.typing_autocorrect = state.typing_autocorrect;
     st.typing_suggestions = state.typing_suggestions;
+    st.autoplay_enabled = state.autoplay_enabled;
+    st.autoplay_removable = state.autoplay_removable.key().to_string();
+    st.autoplay_memcard = state.autoplay_memcard.key().to_string();
     st.update_paused_until = state.update_paused_until;
     st.update_active_start = state.active_start;
     st.update_active_end = state.active_end;
@@ -2515,6 +2583,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Mouse => mouse_page(state),
         Kind::Touchpad => touchpad_page(state),
         Kind::Typing => typing_page(state),
+        Kind::AutoPlay => autoplay_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -3812,6 +3881,58 @@ fn typing_page(state: &Settings) -> Element<'_, Message> {
                 .size(metrics::BADGE_PX)
                 .color(palette::color(palette::GRAY_TEXT)),
         )
+        .into()
+}
+
+/// Devices ▸ AutoPlay (E12.9): the master toggle + per-type default-action
+/// pick_lists. The settings drive `mde devices-monitor`, which opens removable
+/// media in Files (or notifies) on mount.
+fn autoplay_page(state: &Settings) -> Element<'_, Message> {
+    let master = checkbox(
+        "Use AutoPlay for all media and devices",
+        state.autoplay_enabled,
+    )
+    .on_toggle(Message::SetAutoplayEnabled)
+    .size(metrics::UI_PX)
+    .text_size(metrics::UI_PX)
+    .spacing(8.0)
+    .style(mde_ui::checkbox_style);
+
+    let pick = |label_text: &'static str,
+                value: AutoAction,
+                msg: fn(AutoAction) -> Message|
+     -> Element<'_, Message> {
+        Row::new()
+            .spacing(8.0)
+            .align_y(iced::alignment::Vertical::Center)
+            .push(
+                text(label_text)
+                    .size(metrics::UI_PX)
+                    .width(Length::Fixed(160.0))
+                    .color(palette::color(palette::WINDOW_TEXT)),
+            )
+            .push(pick_list(AutoAction::ALL.to_vec(), Some(value), msg).text_size(metrics::UI_PX))
+            .into()
+    };
+
+    Column::new()
+        .spacing(14.0)
+        .push(master)
+        .push(
+            text("Choose AutoPlay defaults")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        )
+        .push(pick(
+            "Removable drive",
+            state.autoplay_removable,
+            Message::SetAutoplayRemovable,
+        ))
+        .push(pick(
+            "Memory card",
+            state.autoplay_memcard,
+            Message::SetAutoplayMemcard,
+        ))
         .into()
 }
 
