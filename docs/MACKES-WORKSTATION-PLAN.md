@@ -25,6 +25,23 @@
 - **Q11 D-Bus vs Bus → Bus.** The platform is retiring all MDE-internal D-Bus to Bus
   topics (EPIC-RETIRE-DBUS; only FDO interop like `org.freedesktop.Notifications`
   stays). Mackes Workstation surfaces consume the **Bus**, not internal D-Bus.
+
+*Batch 2 — 2026-06-03:*
+- **Surfaces → the Win10 shell REPLACES `mde-portal`.** One daily-driver shell
+  (MDE-Retro's Win10). The Portal is retired/absorbed — its functions reappear as
+  Win10 idioms (Start/Settings/Explorer/Action Center); its distinctive power-user
+  layers (mesh roster, tags, library) move to the **Workbench**.
+- **Q9 daemon → `mackesd` as a supervised service.** It owns the workers + mesh/CA
+  state; the Win10 shell + Workbench consume state and send actions over the **Bus**
+  (no in-process worker pool in the shell).
+- **Q26 KDE Connect → `MDE-KDECnt-Rust` is canonical.** The monorepo depends on the
+  extracted proto+host crate; MDE's in-tree `mde-kdc` host converges onto it. (The
+  in-progress host 3b work is already on the canonical path.)
+- **Q40 Workbench → RE-SKIN to a Win10 "Computer Management" look.** The Workbench
+  adopts the Win10/Carbon theme + widgets — **one visual language across the whole
+  product.** *Implication:* unify on the MDE-Retro `mde-ui` flat-Carbon widget kit;
+  the 43 Workbench panels get re-themed (resolves Q23/Q24 → single design system,
+  not coexisting Material).
 - **Q1 Repo → MONOREPO.** One cargo workspace absorbs MDE's platform crates +
   MDE-Retro's shell + the Workbench as members. The existing repos become upstream
   history. (This is the final home for *this* plan once the repo exists.)
