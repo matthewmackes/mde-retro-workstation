@@ -104,6 +104,7 @@ enum Message {
     TaskView,
     Search,
     JumpList(String), // app_id, for the Win10 right-click jump list (E2.6)
+    NetFlyout,        // Win10 network flyout (E15.3)
 }
 
 pub fn run(_args: &[String]) -> ExitCode {
@@ -386,6 +387,7 @@ fn update(state: &mut Panel, message: Message) -> Task<Message> {
         Message::Search => push_child(state, spawn_child(&["search"])),
         // Right-click jump list for a taskbar app button (E2.6).
         Message::JumpList(app_id) => push_child(state, spawn_child(&["jumplist", &app_id])),
+        Message::NetFlyout => push_child(state, spawn_child(&["net-flyout"])),
         // Toggle the Start menu: open it if closed, close it if already open.
         // Owning the child (instead of fire-and-forget spawning) is what stops
         // rapid clicks during the menu's start-up from stacking duplicate
@@ -521,10 +523,14 @@ fn tray_glyphs(state: &Panel) -> Vec<Element<'_, Message>> {
                 .into(),
         );
     }
-    v.push(glyph_button(
-        net_glyph(state.net),
-        Message::Launch("nm-connection-editor".into()),
-    ));
+    // Win10 opens the native network flyout (E15.3); other eras keep the GTK
+    // nm-connection-editor.
+    let net_action = if mde_ui::palette::is_windows10() {
+        Message::NetFlyout
+    } else {
+        Message::Launch("nm-connection-editor".into())
+    };
+    v.push(glyph_button(net_glyph(state.net), net_action));
     if let Some((pct, charging)) = state.battery {
         v.push(glyph_button(
             battery_glyph(pct, charging),
