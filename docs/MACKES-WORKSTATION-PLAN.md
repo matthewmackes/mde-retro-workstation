@@ -302,9 +302,273 @@ compute) · `mde-drawer` (quick actions) · `mde-wizard` (Birthright first-run).
 
 **Q8** (compositor) · **Q16** (Gluster precondition) · **Q1** (repo shape) · **Q5** (MVP scope).
 
-## 8. Next deliverable (pending answers)
+## 8. Executable plan — STATUS: READY (assembled 2026-06-03)
 
-Once the load-bearing four (ideally all 50) are answered, the executable plan:
-the **epic breakdown**, the **per-crate reuse table** (all ~37 MDE crates + MDE-Retro,
-classified as-is / adapt / rebuild), the new repo's **workspace layout**, and the
-**milestone sequence** — still planning-only until "execute."
+The decision gate is closed (27 answers + the governing **"Mirror Windows 10"** rule,
+§0). §9–§12 below are the **executable plan**, synthesized against the current code:
+MDE `@6459e17`, MDE-Retro `main`, and MDE-KDECnt-Rust. **Still PLANNING ONLY** — no
+`mackes-workstation` repo is created and nothing is built until the owner says
+"execute." Reading order: §9 *what we keep* → §10 *what changes in the shell* →
+§11 *the order we build it* → §12 *where it all lives + how it ships*.
+
+Mackes Workstation is the **successor** (§0): it EOLs both MDE and MDE-Retro; their
+repos become upstream history under the one monorepo.
+
+## 9. Per-crate reuse table (REUSE IS KEY)
+
+All 35 crates (33 MDE + 2 MDE-Retro), each classified **as-is** (move unchanged) /
+**adapt** (reuse backend, reskin/rewire) / **rebuild-or-reskin** / **retire-absorb**
+(functions fold into a Win10/Workbench surface, crate retires post-v10). Target layer:
+`shared-lib` · `platform-daemon` · `win10-surface` · `app` · `workbench`.
+
+| Crate | Disposition | Layer | Notes |
+|---|---|---|---|
+| mde (MDE-Retro) | as-is | win10-surface | The shell — **PRIMARY** Win10-inspired surface; **replaces** mde-portal |
+| mde-ui | as-is | shared-lib | **Canonical** design system (Win2000+Win10 widgets, Carbon palette) |
+| mde-portal | **retire-absorb** | win10-surface | Unified shell → Win10 shell replaces; power layers → Workbench/Settings |
+| mde-drawer | **retire-absorb** | win10-surface | Quick-actions → fold into Win10 Action Center tiles |
+| mde-virtual | **retire-absorb** | workbench | KVM+Podman → Workbench "Compute" role (novel, not Win10) |
+| mde-workbench | **rebuild-or-reskin** | workbench | → Server-2003 "Manage Your Server" + Win10 design, consume mde-ui |
+| mde-files | adapt | win10-surface | Mesh file mgr → Win10 Explorer + mesh quick-access |
+| mde-music | adapt | app | Airsonic GUI → Win10 "Media Player" app (MPRIS+Bus) |
+| mde-musicd | adapt | platform-daemon | Airsonic REST client → supervised service; GUI via Bus/MPRIS |
+| mde-voice-hud | adapt | win10-surface | PJSIP softphone → Win10 "Phone/Calls" app + call HUD |
+| mde-voice-config | as-is | shared-lib | Pure-fn kamailio/rtpengine config gen |
+| mde-theme | adapt | shared-lib | Design tokens → consolidate onto mde-ui Carbon/Win10 |
+| mde-kdc | adapt | platform-daemon | KDE Connect host → converge onto MDE-KDECnt-Rust canonical |
+| mde-kdc-proto | as-is | shared-lib | KDE Connect protocol (pure Rust+ring) |
+| mde-applets | adapt | win10-surface | 17 applets → Win10 tray + Action-Center tiles |
+| mde-panel | adapt | win10-surface | Top bar+dock → Win10 Taskbar+Tray |
+| mde-popover | adapt | win10-surface | Layer-shell popover → Win10 Start Menu+popovers |
+| mde-peer-card | adapt | win10-surface | Peer Connection Card → Workbench + Win10 Network modal |
+| mde-wizard | adapt | app | First-run → Win10 OOBE + Birthright mesh enrolment |
+| mde-installer | adapt | platform-daemon | + deployment-role chooser (Lighthouse/Server/Workstation) |
+| mde-logout-dialog | as-is | app | Logout/restart/shutdown → Win10 reskin |
+| mde-session | as-is | platform-daemon | Session orchestrator → launch labwc; keep D-Bus (FDO carve-out) |
+| mde-bus | as-is | shared-lib | Mesh pub/sub (ntfy/Nebula) — **platform IPC backbone** |
+| mackesd | as-is | platform-daemon | **Control plane** — supervised service + workers + mesh/CA |
+| mde-clipd | as-is | platform-daemon | Clipboard daemon (wlr-data-control → Bus) |
+| mde-alert-emit | as-is | platform-daemon | Netdata alert translator |
+| mde-iced-components | as-is | shared-lib | Shared iced widgets (Object Card) |
+| mde-card | as-is | shared-lib | Universal cards subsystem + mesh probe |
+| mackes-mesh-types | as-is | shared-lib | Canonical mesh-resource types |
+| mackes-transport | as-is | shared-lib | Transport trait + capability model |
+| mackes-config | as-is | shared-lib | Serde TOML schema (panel.toml) |
+| mackes-theme | as-is | shared-lib | Carbon→cosmic CSS adapter → merge into mde-ui or deprecate |
+| mackes-nebula-https-tunnel | as-is | shared-lib | Covert TLS (Nebula UDP over HTTPS) mesh fallback |
+| mde-config / mde-mesh-types / mded | as-is | shared-lib | Re-export facades → merge into mackes-config / mackes-mesh-types / mackesd post-transition |
+
+**Platform substrate retained wholesale:** Bus, mackesd, Nebula, LizardFS mesh-storage,
+KDE Connect proto. **Design unifies** on `mde-ui` (flat-Carbon + Win10 palette, one
+system — no separate Material/ChromeOS look).
+
+## 10. MDE-Retro shell changes (the Win10 surface build, E0–E20 + substrate)
+
+Each item is reachable from an `mde <subcommand>`, themed only via `palette::color()`
+(no raw hex), metrics via `metrics::UI_PX`. Era-gated on `palette::theme() ==
+Theme::Windows10` so Carbon stays the default and Win2000/BeOS are untouched.
+
+**E0 — Era foundation.** `Theme::Windows10` (THEME atomic = 3) + `win10(rgb)` remap
+(accent `#0078d4`/`#2899f5`, Win10 greys), wired through `palette::color()`,
+`font::family()`, `state.rs` (`"windows10"`), `main.rs` startup. Win10 panel = bottom
+anchor. Display ▸ Appearance gains a "Windows 10" picker (labwc themerc rewriter).
+Pinned by `windows10_remap_pins` in `checklist.rs`.
+
+**E1 — Tiled Start** (`mde start-win10`). Full-screen layer-shell overlay: left icon-rail
+(account/folders/Settings/Power, hover-expands), center (Recently-Added/Suggested/All-Apps
+A–Z), right tile grid (`StartTile` in `state.rs`). Right-click Pin/Unpin/Resize/Uninstall.
+Headless CLI `--pin/--unpin/--resize/--list-tiles`. Reuses `menu.rs` launch/context.
+
+**E2 — Win10 taskbar** (`panel.rs` `view_win10()`). Bottom-anchored: Start tile, Search
+box (E5), Task View (E4), app buttons (accent underline on focus), tray, two-line clock,
+Action Center button + unread badge (reads `notifications.json`). New surfaces: `mde
+search`/`taskview`/`action-center`/`jumplist`. Win+A → Action Center.
+
+**E3 — Action Center + notification daemon** (`notifyd.rs`, `action_center.rs`). zbus
+daemon claims `org.freedesktop.Notifications` (hosted in the panel process, persists across
+restarts), store mirrored to `notifications.json`. `mde action-center` (right pane, Win+A)
++ `mde toast <id>` (bottom-right transient). Quick-action tile grid
+(Wi-Fi/BT/Airplane/Brightness/Volume/Night-light/Focus) backed by NM/BlueZ/wlsunset.
+Feeds E2 badge; toast source for E9/E12/E13/E15/E16/E17.
+
+**E4 — Multitasking** (`task_view.rs`, `workspace.rs`). Win+Tab full-screen grid (icon+title
+tiles from `wlr.rs`, no pixel thumbnails). Virtual desktops via `ext-workspace-v1` with an
+honest fallback ladder. Snap = labwc rc.xml edge-snap keybinds (mde never owns geometry);
+Snap Assist = `mde task-view --snap-assist <side>` (focus-only, labwc chain-snaps).
+
+**E5 — Search + Quick Access** (`search.rs`). Win+S overlay, tabs All/Apps/Documents/Web/
+Settings (apps via `apps::programs()`, docs via `fd`, web via DuckDuckGo). Win+X Quick
+Access menu (`popup.rs items_for("quickaccess")`) → System/Device-Mgr/Disk/Power/Event-Viewer/
+Network/Task-Mgr/Terminal/Run. Both Win10-gated.
+
+**E6 — Modern Settings app** (`settings.rs`, `mde settings`, Win+I). Category grid (System,
+Devices, Phone, Network, Personalization, Apps, Accounts, Time & Language, Ease of Access,
+Privacy, Update & Security) + left rail. **Replaces Control Panel in Win10 era only**;
+Win2000/Carbon keep `mde control-panel`. M1 live pages: Display, About, Printers, Colors,
+Background. Reuses `control_panel.rs` shape + `fedora::TOOLS`.
+
+**E7 — Personalization** (`settings/personalization.rs`). Colors (Light/Dark/Custom +
+accent grid → `set_dark`/`set_accent`, new `win10_accent`), Background (Picture/Solid/
+Slideshow, reuse `display.rs` wallpaper helpers), Themes, Lock screen (Spotlight-style local
+rotation), Start, Taskbar pages. New `#[serde(default)]` state fields.
+
+**E8 — File Explorer** (`files.rs` Win10 routing). Quick Access landing (Frequent + Recent),
+This PC (mounts from `/proc/mounts`), Network (SMB via gio/smbclient), **Cloud Files = paired
+KDE Connect devices** (remote browse via sftp/gio), mesh-storage LizardFS mounts. Breadcrumb
++ flat command row. `mde mount <uri>`.
+
+**E9 — Your Phone** (`connect.rs` zbus client + `phone.rs`). `mde phone --view=messages|photos|
+calls|notifications --device=<id>`. Three-region: device picker rail + per-view pane
+(Notifications/Messages/Photos/Calls/Settings). Toasts via E3 filtered to KDE Connect.
+Depends on E3 + MDE-KDECnt-Rust + `mde connect` daemon.
+
+**E10 — Accounts / Lock / Sign-in.** Settings ▸ Accounts (Your-info → `~/.face`, Sign-in
+options incl. argon2 PIN at `~/.config/mde/pin.hash`, Family & other users via useradd/usermod
+behind pkexec). `mde lock` (Win+L) layer-shell lock face (PIN argon2 / password via PAM).
+LightDM-gtk greeter theme generated from `win10()` tokens. New dep: `argon2`.
+
+**E11 — OOBE** (extends `installer.rs` + `tui_setup.rs`). `OobeEra::{Classic,Win10}` from
+theme. Stages Region/Keyboard/Network/Account/PIN/Privacy/Your-Phone/Personalize/Finalize.
+GUI+TUI share pickers. `oobe_done` state. *(Note: an `oobe.rs` scaffold + state fields
+already landed in MDE-Retro; this epic merges them with the Birthright mesh enrolment.)*
+
+**E12 — Settings ▸ Devices** (`settings/devices.rs`, `bluez.rs` bg-thread). Bluetooth
+(BlueZ via zbus: power/discover/pair/remove), Printers (lpinfo/lpadmin/lpstat), Mouse/Touchpad/
+Typing (labwc libinput config), AutoPlay (udisks2), Project/second-display (`mde project`,
+Win+P). Deep-links `mde settings --page devices[:bluetooth|...]`.
+
+**E13 — Windows Update** (`settings/update.rs`). dnf-backed: check (`dnf check-update`),
+install (`pkexec dnf upgrade`), feature-update probe, pause (≤35d), active hours, history
+(`dnf history`), uninstall (`history undo`), advanced toggles. Promotes the
+`system_properties.rs` auto-update stub to a real `sysinfo::set_auto(AutoMode)` persisted in
+state (shared backend, screenshot-parity).
+
+**E14 — Security dashboard** (`security.rs` + `security_probe.rs`, `mde security`, Win10-only).
+Tiles: Virus & threat (ClamAV optional), Firewall (firewalld zones), Device encryption (LUKS
+status + recovery-key backup; turn-on is destructive-confirm, never auto-runs), Find-my-device
+(KDE Connect ring/lock), Secure Boot/TPM read-only probes. New `STATUS_OK/WARN/RISK` roles
+pinned in checklist.
+
+**E15 — Networking** (`net_flyout.rs` + `settings/network.rs` + `nm.rs` pure backend). Panel
+net-glyph flyout (Wi-Fi list/connect, Airplane). Settings pages: Status, Wi-Fi, Ethernet, VPN,
+Mobile hotspot, Proxy, Data usage, Airplane. Action-Center toggles call `nm::set_*`.
+Win2000/Carbon keep nm-connection-editor.
+
+**E16 — Clipboard history + Screenshots** (`clipboard.rs` + `snip.rs`). `wl-paste --watch`
+ring buffer (`~/.local/share/mde/clipboard/`, 25 unpinned + pinned), `mde clipboard` (Win+V)
+overlay. `mde snip` (Win+Shift+S) over grim+slurp: rect/window/full/clip, PrintScreen family
+mapped, toast via E3.
+
+**E17 — Storage / Backup / Recovery** (`settings/{storage,backup,recovery}.rs`). Storage Sense
+(systemd timer + dnf/journald clean), usage breakdown, Apps drill-in. Backup = Timeshift
+(add-drive/schedule/retention/back-up-now/restore). **System Restore** browser with green
+`RESTORE_PRIMARY` "Restore to original location". Recovery = Reset-this-PC (two-mode,
+typed-destructive confirm), Advanced startup, Create recovery drive.
+
+**E18 — Edge → Firefox** (`browser.rs` + `browser_jumplist.rs`). `default_browser()` via
+xdg-settings, `recent_sites()` read-only over places.sqlite, jump list (New/Private/Recent).
+Default-apps "Web browser" row. Label is always "Firefox" (never fake Edge brand, §2.4). New
+dep: `rusqlite` (read-only).
+
+**E19 — Power / Session** (extends `dialogs.rs`). `Choice::Lock` + `mde lock` (Win+L, loginctl
+lock-session → swaylock). Win10 flat-flyout rows (Sleep/Shutdown/Restart, Lock/Sign-out);
+Win2000/Carbon keep the dropdown.
+
+**E20 — Polish + accuracy.** Pins `Theme::Windows10` + `win10()` + roles into `checklist.rs`;
+dynamic `[capture.win10-*]` accuracy points (accent at Start/taskbar/Action-Center/Settings);
+per-era `gallery.sh` captures (era-aware crops); documented rc.xml keybind table; focus-ring
+checks. Win10 reaches parity with Win2000/BeOS/Carbon in the accuracy gate.
+
+### Cross-cutting substrate (not a single surface)
+
+- **Registered-module Settings registry** — a `PageProvider`-style contract so E12/E13/E15/E17
+  inject Settings pages without editing `settings.rs`'s match tree. **Lock the interface before
+  E12 starts** (R6 decision: trait-aggregation vs. one-process-per-page).
+- **Bus client integration** — Win10 surfaces talk to mackesd workers over `mde-bus` (not
+  private D-Bus). Prove theme/accent signal delivery first, then E3/E9/E15 action↔state loops.
+- **Mesh/peer Quick Access + LizardFS FUSE** — E8 Explorer enumerates LizardFS mesh mounts;
+  installer ensures the FUSE mount is live before any surface browses. Blocked on the LizardFS
+  binding landing.
+- **mackesd supervisor + role chooser** — mackesd is the authority for long-lived state;
+  surfaces **degrade gracefully** if workers are absent (cached state, Bus timeouts, never
+  panic). Install-time role gates which workers + surfaces install.
+- **Disclaimer everywhere** — every new About/Info/Help surface (Settings, Security,
+  Storage/Backup, Workbench) pulls the single `DISCLAIMER.md` via `disclaimer.rs`
+  `include_str!` — never copy-paste.
+- **Workbench re-skin** — `mde-workbench` (9 groups / 43 panels) → Server-2003 "Manage Your
+  Server" mold (left-nav role cards + description + action links + Tools/See-also sidebar)
+  wearing `win10()` + `icon_any` (no separate Material set). Power-user only; deferred to a
+  post-v1-shell task (not a ship blocker).
+- **Snapshots as System Restore** — one Timeshift backend, two entry points (Settings ▸
+  Recovery + Workbench Maintain).
+
+## 11. Epic breakdown & milestone sequence
+
+Eight ordered epics. **E0** is foundational (blocks all). **E1–E3** are parallel substrate.
+**E4–E5** the UI surface layer. **E6–E7** complete the user model. **E8** gates the held RPM.
+Every epic enforces §3 Definition of Done (no stubs, runtime-reachable, disclaimer embedded).
+
+| Epic | Scope | Depends on | Unblocks |
+|---|---|---|---|
+| **E0 Monorepo Bootstrap** | Cargo workspace absorbs ~37 platform crates + shell + Workbench; v10.0.0/GPL-3.0; wire `mde-bus` (retire D-Bus); import labwc config; EOL/archive old repos; disclaimer embedding; mackesd systemd unit; verify `mde <sub>` dispatch | none | E1–E7 |
+| **E1 Deployment-Role Install** | RPM install-time role chooser (Lighthouse/Server/Workstation) → mackesd worker subset + role-gated surfaces; role-aware systemd units + `/etc/mackesd/` templates; wire selector into installer | E0 | E2,E4,E5,E7 |
+| **E2 KDE Connect Convergence** | Finish MDE-KDECnt-Rust **inbound listener (3b.2e)** → bidirectional; converge in-tree `mde-kdc` onto canonical crate; pairing store + host in mackesd; sftp mount for Explorer Cloud Files; verify round-trip with a real phone | E0,E1 | E5,E9 |
+| **E3 Mesh-Storage LizardFS** | LizardFS master+chunk daemons; mount mesh XDG dirs owned by mackesd; topology-aware replication; offline graceful degrade (Gluster retired) | E0,E1 | E4,E5,E6 |
+| **E4 Win10 Shell Replaces mde-portal** | Retire portal; functions reappear as Win10 idioms; port 13 network panels → Settings ▸ Network; **Settings registry**; migrate power-user net/CA/fleet → Workbench; scale Settings to 20+ pages | E0,E1,E3 | E5,E6 |
+| **E5 New Apps + Explorer + Action Center** | Phone/Calls app (voice+KDC), Media Player (music+MPRIS), Explorer mesh Quick-Access, drawer→Action Center, 17 applets→tray/tiles | E0,E1,E2,E3,E4 | E7,E8 |
+| **E6 Workbench Re-skin** | Server-2003 "Manage Your Server" + Win10 design; 43 panels → role/section cards + action links; fold compute/fleet/maintain/presets/role-mgmt; retire network panels (→E4); Start tile + "Manage Workstation" entry | E0,E1,E3,E4,E5 | E7,E8 |
+| **E7 Merged OOBE + Mesh Enrolment** | Win10 OOBE ∪ Birthright wizard; role picker early; Nebula cert/CA enrolment step; optional KDC phone pair; disclaimer "read before proceeding" step | E0,E1,E2,E4,E5,E6 | E8 |
+| **E8 Polish + Held RPM Release** | Accuracy harness over Workbench + new apps; screenshot all 43 panels + new surfaces; **disclaimer audit sweep** across every About surface; per-era pixel compliance; full build/test/clippy/fmt; verify E1–E7 §3-complete; **cut RPM v10.0.0** + CHANGELOG | E0–E7 | release gate |
+
+## 12. Monorepo workspace layout + deployment-role architecture
+
+**One** Cargo workspace, `version = "10.0.0"`, `license = "GPL-3.0-only"`, `edition 2021`,
+`rust-version 1.85`. Members grouped:
+
+```
+crates/platform/*   mde-bus, CA/enrollment
+crates/mesh/*       mackesd (lib+bin), mackes-mesh-types, mackes-nebula-https-tunnel,
+                    mackes-config, mackes-transport
+crates/shell/*      mde (multiplexed dispatcher), mde-ui, mde-installer, mde-wizard,
+                    mde-session, mde-logout-dialog, mde-peer-card, mde-popover, mde-card,
+                    mde-alert-emit  (+ retiring: mde-portal, mde-drawer)
+crates/workbench/*  mde-workbench, mde-virtual
+crates/shared/*     mde-theme, mde-iced-components
+crates/applets/*    mde-applets (17 widgets)
+crates/services/*   mde-musicd, mde-music, mde-files, mde-clipd, mde-voice-config, mde-voice-hud
+crates/kdc/*        mde-kdc, mde-kdc-proto  (canonical host = MDE-KDECnt-Rust)
+```
+
+**Deployment roles — ONE RPM, install-time chooser** (`mde setup --profile=<role>` or OOBE
+menu; stored immutable in `/var/lib/mde/role.toml`; upgrade allowed, downgrade blocked). Each
+role is a strict superset:
+
+1. **Lighthouse** (rank 0) — VPS relay. mackesd (enrollment CA only) + mde-bus + Nebula +
+   LizardFS read-only client. No desktop, no media/voice/compute, no display manager.
+2. **Headless / Server** (rank 1) — Lighthouse + LizardFS chunk brick + fleet (ansible-pull) +
+   monitoring. Still no desktop.
+3. **Full Workstation** (rank 2) — Headless + sway/labwc + `mde` shell + all GUI + 17 applets +
+   service daemons + greetd/regreet/cage + libvirt/qemu + kamailio/rtpengine + fonts.
+
+**mackesd worker subsets by role:** Lighthouse = enrollment(CA)+leader+health · Headless = +
+fleet+meshfs(LizardFS FUSE)+metrics · Full = + voice coordinator + media stack.
+
+**Surfaces gated by role:** CLI subcommands (`mde panel/menu/files/net-flyout/filedialog`)
+available everywhere; desktop-only (`mde settings/start-win10/action-center/security/oobe/
+installer`) ENOENT on non-Full; Workbench binary installs only under Full.
+
+**RPM subpackage structure** (one spec, conditional): `mde-core` (all roles — `mde`, `mackesd`,
+`mde-bus`, `mde-kdc`, systemd `mackesd.service`+`mde-bus.service`) · `mde-headless` (Headless+Full
+— lizardfs, ansible-pull.timer) · `mde-desktop` (Full only, `Requires: mde-core` — sway/labwc/
+regreet/cage, `mde-workbench`, applets, icons/themes/fonts, `mde-session.service`+`greetd.service`).
+`Provides:` legacy names; `Obsoletes:` the old xfce/i3 packages.
+
+**Versioning:** single `[workspace.package] version = "10.0.0"`; all crates inherit; one git tag
+`mackes-workstation-v10.0.0`. **Disclaimer pre-flight gate:** `DISCLAIMER.md` must exist + be
+non-empty before any RPM build.
+
+---
+
+*Plan complete and executable. Awaiting "execute" to create the `mackes-workstation` monorepo
+and begin E0. The RPM (E8) stays held until all features are §3-complete; hardware bench is
+post-release.*
