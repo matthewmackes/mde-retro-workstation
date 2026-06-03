@@ -38,7 +38,7 @@ case "${1:-help}" in
         build_if_needed
         exec bash "$here/tests/accuracy/nested-sway.sh"
         ;;
-    panel|menu|files|control-panel|system-properties|run|properties|logoff|shutdown|setup)
+    panel|menu|files|control-panel|system-properties|security|run|properties|logoff|shutdown|setup)
         build_if_needed
         sub="$1"; shift
         echo "preview: launching 'mde $sub' on the current session (kill it when done)…"

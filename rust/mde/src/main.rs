@@ -40,6 +40,7 @@ mod panel;
 mod pin;
 mod popup;
 mod search;
+mod security;
 mod security_probe;
 mod settings;
 mod start_common;
@@ -80,6 +81,7 @@ COMMANDS:
     properties NAME TARGET   Launcher/file Properties dialog
     system-properties [--info|--devices|--users]   System facts / Device Manager / accounts
     pin [--set N|--check|--verify N|--clear]   Manage the sign-in PIN (argon2 hash)
+    security         Windows Security dashboard (firewall/encryption/AV/TPM posture)
     greeter [--css|--conf [BG]]   Emit the LightDM Win10 greeter theme (palette-sourced)
     taskbar-properties   Taskbar and Start Menu Properties
     setup [--tui|--gui|--dry-run]   Install/configure MDE-Retro
@@ -183,6 +185,7 @@ fn main() -> ExitCode {
         }
         "about" => about::run(rest),
         "system-properties" => system_properties::run(rest),
+        "security" => security::run(rest),
         "pin" => pin::run(rest),
         "greeter" => greeter::run(rest),
         "taskbar-properties" => taskbar_properties::run(rest),
