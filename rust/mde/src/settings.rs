@@ -201,6 +201,8 @@ enum Kind {
     Airplane,
     /// The native Network & Internet ▸ Data usage page (E15.11).
     DataUsage,
+    /// The native Network & Internet ▸ Cellular page (E15.12) — greyed advisory.
+    Cellular,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -315,6 +317,10 @@ const CATEGORIES: &[Category] = &[
             Page {
                 title: "Proxy",
                 kind: Kind::Proxy,
+            },
+            Page {
+                title: "Cellular",
+                kind: Kind::Cellular,
             },
             Page {
                 title: "Data usage",
@@ -726,6 +732,7 @@ fn list() -> ExitCode {
                 Kind::Proxy => "(native: Proxy)".to_string(),
                 Kind::Airplane => "(native: Airplane mode)".to_string(),
                 Kind::DataUsage => "(native: Data usage)".to_string(),
+                Kind::Cellular => "(native: Cellular)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -1463,6 +1470,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Proxy
         | Kind::Airplane
         | Kind::DataUsage
+        | Kind::Cellular
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -1764,6 +1772,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Proxy => proxy_page(state),
         Kind::Airplane => airplane_page(state),
         Kind::DataUsage => data_usage_page(state),
+        Kind::Cellular => cellular_page(),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -2124,6 +2133,28 @@ fn update_advanced_page(state: &Settings) -> Element<'_, Message> {
             )
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT)),
+        )
+        .into()
+}
+
+/// Network & Internet ▸ Cellular (E15.12): a greyed, disabled "Cellular" toggle +
+/// a "No cellular hardware detected" advisory — Win10-fidelity, not a working
+/// surface (§3: shown disabled, never an inert mockup).
+fn cellular_page() -> Element<'static, Message> {
+    Column::new()
+        .spacing(10.0)
+        .push(
+            // No on_toggle → disabled, like the labwc-managed taskbar toggles.
+            checkbox("Cellular", false)
+                .size(metrics::UI_PX)
+                .text_size(metrics::UI_PX)
+                .spacing(8.0)
+                .style(mde_ui::checkbox_style),
+        )
+        .push(
+            text("No cellular hardware detected.")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
         )
         .into()
 }

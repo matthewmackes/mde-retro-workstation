@@ -170,6 +170,47 @@ fn windows10_uses_carbon_coloring() {
     palette::set_dark(true);
 }
 
+/// E15.12: pin the palette roles the Windows 10 network surfaces paint with — the
+/// **accent** (flyout toggle pills, Wi-Fi signal bars, data-usage bars, selection)
+/// and the page **surface / caption neutrals** — so the Networking look can't drift
+/// under `Theme::Windows10`. They equal Carbon (the rebrand). Holds THEME_GUARD and
+/// restores the default at the end.
+#[test]
+fn windows10_network_palette_pins() {
+    use mde_ui::palette::Theme;
+    let _g = THEME_GUARD.lock().unwrap();
+    let rgb = |c: iced::Color| (ch(c.r), ch(c.g), ch(c.b));
+
+    // The roles the net surfaces use; capture Carbon dark as the reference.
+    let roles = [
+        palette::HIGHLIGHT,
+        palette::WINDOW,
+        palette::MENU,
+        palette::GRAY_TEXT,
+    ];
+    palette::set_theme(Theme::Carbon);
+    palette::set_dark(true);
+    let carbon: Vec<_> = roles.iter().map(|&r| rgb(palette::color(r))).collect();
+
+    palette::set_theme(Theme::Windows10);
+    palette::set_dark(true);
+    for (i, &r) in roles.iter().enumerate() {
+        assert_eq!(
+            rgb(palette::color(r)),
+            carbon[i],
+            "Win10 net role #{i} drifted from Carbon"
+        );
+    }
+    // The accent (pills / bars / selection) is specifically Carbon Blue.
+    assert_eq!(
+        rgb(palette::color(palette::HIGHLIGHT)),
+        palette::carbon_accent()
+    );
+
+    palette::set_theme(Theme::Win2000);
+    palette::set_dark(true);
+}
+
 /// App-chrome colors live in the palette too, so nothing outside it names a
 /// raw hex; pin them so a future hand-tuned literal fails here instead.
 #[test]
