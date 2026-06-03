@@ -194,15 +194,52 @@ pub fn set_zone(name: &str, zone: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The GNOME proxy mode (`none`/`manual`/`auto`) — the Proxy page (E15.9) reads it.
-pub fn proxy_mode() -> String {
+fn gget(schema: &str, key: &str) -> String {
     Command::new("gsettings")
-        .args(["get", "org.gnome.system.proxy", "mode"])
+        .args(["get", schema, key])
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().trim_matches('\'').to_string())
-        .unwrap_or_else(|| "none".to_string())
+        .unwrap_or_default()
+}
+
+fn gset(schema: &str, key: &str, value: &str) -> bool {
+    Command::new("gsettings")
+        .args(["set", schema, key, value])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// The GNOME proxy mode (`none`/`manual`/`auto`) — the Proxy page (E15.9) reads it.
+pub fn proxy_mode() -> String {
+    let m = gget("org.gnome.system.proxy", "mode");
+    if m.is_empty() {
+        "none".to_string()
+    } else {
+        m
+    }
+}
+
+/// The manual HTTP proxy host + port (`gsettings`), for the Proxy page (E15.9).
+pub fn proxy_http() -> (String, String) {
+    (
+        gget("org.gnome.system.proxy.http", "host"),
+        gget("org.gnome.system.proxy.http", "port"),
+    )
+}
+
+/// Set the GNOME proxy mode (`none`/`manual`/`auto`) — E15.9. Best-effort.
+pub fn set_proxy_mode(mode: &str) -> bool {
+    gset("org.gnome.system.proxy", "mode", mode)
+}
+
+/// Set the manual HTTP proxy host + port (E15.9). Best-effort.
+pub fn set_proxy_http(host: &str, port: &str) -> bool {
+    let p = if port.is_empty() { "0" } else { port };
+    gset("org.gnome.system.proxy.http", "host", host)
+        && gset("org.gnome.system.proxy.http", "port", p)
 }
 
 /// Whether the Wi-Fi radio is on (`nmcli radio wifi`).

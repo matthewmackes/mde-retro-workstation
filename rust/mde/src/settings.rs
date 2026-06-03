@@ -116,6 +116,40 @@ impl std::fmt::Display for Hour {
         write!(f, "{:02}:00", self.0)
     }
 }
+
+/// Proxy mode for the Proxy page picker (E15.9) — the GNOME `mode` enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyMode {
+    Off,
+    Manual,
+    Auto,
+}
+impl ProxyMode {
+    const ALL: [ProxyMode; 3] = [ProxyMode::Off, ProxyMode::Manual, ProxyMode::Auto];
+    fn key(self) -> &'static str {
+        match self {
+            ProxyMode::Off => "none",
+            ProxyMode::Manual => "manual",
+            ProxyMode::Auto => "auto",
+        }
+    }
+    fn from_key(k: &str) -> Self {
+        match k {
+            "manual" => ProxyMode::Manual,
+            "auto" => ProxyMode::Auto,
+            _ => ProxyMode::Off,
+        }
+    }
+}
+impl std::fmt::Display for ProxyMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ProxyMode::Off => "Off",
+            ProxyMode::Manual => "Manual",
+            ProxyMode::Auto => "Automatic",
+        })
+    }
+}
 impl std::fmt::Display for BgSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -161,6 +195,8 @@ enum Kind {
     Vpn,
     /// The native Network & Internet ▸ Mobile hotspot page (E15.8).
     Hotspot,
+    /// The native Network & Internet ▸ Proxy page (E15.9).
+    Proxy,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -270,7 +306,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "Proxy",
-                kind: Kind::Deferred,
+                kind: Kind::Proxy,
             },
         ],
     },
@@ -492,6 +528,10 @@ struct Settings {
     /// Mobile hotspot (E15.8): the AP SSID + key, mirroring `state`.
     hotspot_name: String,
     hotspot_password: String,
+    /// Proxy page (E15.9): the GNOME proxy mode + manual HTTP host/port, read live.
+    proxy_mode: ProxyMode,
+    proxy_host: String,
+    proxy_port: String,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -567,6 +607,11 @@ enum Message {
     SetHotspotOn(bool),
     HotspotName(String),
     HotspotPassword(String),
+    // Proxy page (E15.9).
+    SetProxyMode(ProxyMode),
+    ProxyHost(String),
+    ProxyPort(String),
+    ApplyProxy,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -654,6 +699,7 @@ fn list() -> ExitCode {
                 Kind::Ethernet => "(native: Ethernet)".to_string(),
                 Kind::Vpn => "(native: VPN)".to_string(),
                 Kind::Hotspot => "(native: Mobile hotspot)".to_string(),
+                Kind::Proxy => "(native: Proxy)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -723,6 +769,12 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 vpns: crate::nm::vpn_list(),
                 hotspot_name: st.hotspot_name.clone(),
                 hotspot_password: st.hotspot_password.clone(),
+                proxy_mode: ProxyMode::from_key(&crate::nm::proxy_mode()),
+                proxy_host: {
+                    let (h, _) = crate::nm::proxy_http();
+                    h
+                },
+                proxy_port: crate::nm::proxy_http().1,
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -990,6 +1042,17 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         Message::HotspotPassword(p) => {
             state.hotspot_password = p;
             persist(state);
+        }
+        Message::SetProxyMode(m) => {
+            crate::nm::set_proxy_mode(m.key());
+            state.proxy_mode = m;
+        }
+        Message::ProxyHost(h) => state.proxy_host = h,
+        Message::ProxyPort(p) => {
+            state.proxy_port = p.chars().filter(|c| c.is_ascii_digit()).collect()
+        }
+        Message::ApplyProxy => {
+            crate::nm::set_proxy_http(&state.proxy_host, &state.proxy_port);
         }
     }
     Task::none()
@@ -1329,6 +1392,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Ethernet
         | Kind::Vpn
         | Kind::Hotspot
+        | Kind::Proxy
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -1626,6 +1690,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Ethernet => ethernet_page(state),
         Kind::Vpn => vpn_page(state),
         Kind::Hotspot => hotspot_page(state),
+        Kind::Proxy => proxy_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -1988,6 +2053,65 @@ fn update_advanced_page(state: &Settings) -> Element<'_, Message> {
             .color(palette::color(palette::GRAY_TEXT)),
         )
         .into()
+}
+
+/// Network & Internet ▸ Proxy (E15.9): an Off/Manual/Automatic mode picker; under
+/// Manual, an address + port + Apply that writes `org.gnome.system.proxy*` via
+/// gsettings. Read live at settings start.
+fn proxy_page(state: &Settings) -> Element<'_, Message> {
+    let mode = Row::new()
+        .spacing(8.0)
+        .align_y(iced::alignment::Vertical::Center)
+        .push(
+            text("Use a proxy server")
+                .size(metrics::UI_PX)
+                .width(Length::Fixed(130.0))
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(
+            pick_list(
+                ProxyMode::ALL.to_vec(),
+                Some(state.proxy_mode),
+                Message::SetProxyMode,
+            )
+            .text_size(metrics::UI_PX),
+        );
+    let mut col = Column::new().spacing(12.0).push(mode);
+    if state.proxy_mode == ProxyMode::Manual {
+        let field = |label: &'static str, value: &str, msg: fn(String) -> Message, w: f32| {
+            Row::new()
+                .spacing(8.0)
+                .align_y(iced::alignment::Vertical::Center)
+                .push(
+                    text(label)
+                        .size(metrics::UI_PX)
+                        .width(Length::Fixed(130.0))
+                        .color(palette::color(palette::WINDOW_TEXT)),
+                )
+                .push(
+                    text_input(label, value)
+                        .on_input(msg)
+                        .on_submit(Message::ApplyProxy)
+                        .size(metrics::UI_PX)
+                        .width(Length::Fixed(w)),
+                )
+        };
+        col = col
+            .push(field(
+                "Address",
+                &state.proxy_host,
+                Message::ProxyHost,
+                220.0,
+            ))
+            .push(field("Port", &state.proxy_port, Message::ProxyPort, 80.0))
+            .push(
+                button(text("Apply").size(metrics::UI_PX))
+                    .on_press(Message::ApplyProxy)
+                    .padding(Padding::from([6.0, 16.0]))
+                    .style(tile_style),
+            );
+    }
+    col.into()
 }
 
 /// Network & Internet ▸ Mobile hotspot (E15.8): a "Share my Internet connection"
