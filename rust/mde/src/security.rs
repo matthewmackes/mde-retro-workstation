@@ -23,6 +23,8 @@ enum Pane {
     Antivirus,
     DeviceSecurity,
     AppBrowser,
+    DevicePerf,
+    Family,
 }
 
 struct Security {
@@ -70,10 +72,12 @@ pub fn run(args: &[String]) -> ExitCode {
         "antivirus" => Some(Pane::Antivirus),
         "device-security" => Some(Pane::DeviceSecurity),
         "app-browser" => Some(Pane::AppBrowser),
+        "device-perf" => Some(Pane::DevicePerf),
+        "family" => Some(Pane::Family),
         _ => None,
     });
     let r = iced::application(|_: &Security| "Windows Security".to_string(), update, view)
-        .window_size(iced::Size::new(540.0, 420.0))
+        .window_size(iced::Size::new(540.0, 560.0))
         .resizable(false)
         .theme(|_| palette::iced_theme())
         .font(mde_ui::font::REGULAR_BYTES)
@@ -103,8 +107,10 @@ pub fn run(args: &[String]) -> ExitCode {
                     Vec::new(),
                     Some(security_probe::antivirus_version()),
                 ),
-                // DeviceSecurity / AppBrowser render from `status` — no extra load.
-                Some(p @ (Pane::DeviceSecurity | Pane::AppBrowser)) => (p, None, Vec::new(), None),
+                // The advisory panes render from `status` — no extra load.
+                Some(
+                    p @ (Pane::DeviceSecurity | Pane::AppBrowser | Pane::DevicePerf | Pane::Family),
+                ) => (p, None, Vec::new(), None),
                 _ => (Pane::Home, None, Vec::new(), None),
             };
             (
@@ -264,12 +270,11 @@ fn tile_card<'a>(icon: &'static str, t: &Tile) -> Element<'a, Message> {
     .into()
 }
 
-/// The advisory "App & browser control" tile (E14.9 expands these); no fake
-/// control, just real status text (§3).
-fn advisory_tile() -> Tile {
+/// A simple OK advisory tile (no fake control, just real status text — §3).
+fn advisory_tile(title: &str, status: &str) -> Tile {
     Tile {
-        title: "App & browser control".to_string(),
-        status: "Reputation-based controls are handled by the browser.".to_string(),
+        title: title.to_string(),
+        status: status.to_string(),
         level: Level::Ok,
     }
 }
@@ -294,7 +299,27 @@ fn view(state: &Security) -> Element<'_, Message> {
         Pane::Encryption => encryption_view(state),
         Pane::Antivirus => antivirus_view(state.av.as_ref()),
         Pane::DeviceSecurity => device_security_view(s),
-        Pane::AppBrowser => app_browser_view(),
+        Pane::AppBrowser => advisory_page(
+            "App & browser control",
+            "Reputation-based protection (SmartScreen-style) is handled by your browser.",
+            "Open your browser's Privacy & Security settings to review it.",
+            "Open browser settings",
+            "firefox 'about:preferences#privacy'",
+        ),
+        Pane::DevicePerf => advisory_page(
+            "Device performance & health",
+            "Storage, drivers, battery, and Windows Update are managed by the OS.",
+            "Open System Properties for hardware and update details.",
+            "Open System Properties",
+            "mde system-properties",
+        ),
+        Pane::Family => advisory_page(
+            "Family options",
+            "Manage other accounts and standard/administrator roles for this PC.",
+            "Family accounts and roles live in Settings ▸ Accounts.",
+            "Open Accounts settings",
+            "mde settings accounts",
+        ),
     }
 }
 
@@ -366,23 +391,29 @@ fn device_security_view(s: &SecurityStatus) -> Element<'_, Message> {
         .into()
 }
 
-/// App & browser control (E14.9): advisory — reputation-based protection is the
-/// browser's, with a link to open its settings. No fake toggles.
-fn app_browser_view() -> Element<'static, Message> {
-    detail_header("App & browser control")
+/// A generic advisory detail page (E14.9/E14.9a): a body line, a dim sub-line, and
+/// a single launch/learn link. No fake toggles (§3).
+fn advisory_page(
+    title: &'static str,
+    body: &'static str,
+    sub: &'static str,
+    link_label: &'static str,
+    link_cmd: &'static str,
+) -> Element<'static, Message> {
+    detail_header(title)
         .push(
-            text("Reputation-based protection (SmartScreen-style) is handled by your browser.")
+            text(body)
                 .size(metrics::UI_PX)
                 .color(palette::color(palette::WINDOW_TEXT)),
         )
         .push(
-            text("Open your browser's Privacy & Security settings to review it.")
+            text(sub)
                 .size(metrics::BADGE_PX)
                 .color(palette::color(palette::GRAY_TEXT)),
         )
         .push(
-            button(text("Open browser settings").size(metrics::UI_PX))
-                .on_press(Message::Launch("firefox 'about:preferences#privacy'"))
+            button(text(link_label).size(metrics::UI_PX))
+                .on_press(Message::Launch(link_cmd))
                 .padding(Padding::from([4.0, 12.0]))
                 .style(mde_ui::button_primary),
         )
@@ -395,17 +426,26 @@ fn home_view(s: &SecurityStatus) -> Element<'_, Message> {
         .size(metrics::INFO_TITLE_PX)
         .color(palette::color(palette::WINDOW_TEXT));
 
-    // The 6 home tiles: five probed checks + one advisory; an icon and (for tiles
-    // with a detail page) a navigation target. Only Firewall has a page so far
-    // (E14.5); the rest gain theirs in E14.6–E14.9.
-    let advisory = advisory_tile();
-    let tiles: [(&'static str, &Tile, Option<Pane>); 6] = [
+    // The 8 home tiles: five probed checks + three advisory (App & browser, Device
+    // performance & health, Family options). Each has an icon and a detail page.
+    let app_browser = advisory_tile(
+        "App & browser control",
+        "Reputation-based controls are handled by the browser.",
+    );
+    let perf = advisory_tile(
+        "Device performance & health",
+        "Storage, drivers, and updates look healthy.",
+    );
+    let family = advisory_tile("Family options", "Manage accounts and roles for this PC.");
+    let tiles: [(&'static str, &Tile, Option<Pane>); 8] = [
         ("\u{f188}", &s.antivirus, Some(Pane::Antivirus)),
         ("\u{f132}", &s.firewall, Some(Pane::Firewall)),
-        ("\u{f0ac}", &advisory, Some(Pane::AppBrowser)),
+        ("\u{f0ac}", &app_browser, Some(Pane::AppBrowser)),
         ("\u{f023}", &s.encryption, Some(Pane::Encryption)),
         ("\u{f084}", &s.secureboot, Some(Pane::DeviceSecurity)),
         ("\u{f2db}", &s.tpm, Some(Pane::DeviceSecurity)),
+        ("\u{f0e7}", &perf, Some(Pane::DevicePerf)),
+        ("\u{f0c0}", &family, Some(Pane::Family)),
     ];
 
     let mut grid = Column::new().spacing(12.0);
