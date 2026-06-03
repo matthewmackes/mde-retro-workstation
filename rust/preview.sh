@@ -9,6 +9,9 @@
 #                             headless sway — no effect on your live desktop.
 #                             Output: tests/accuracy/captures/gallery/
 #   ./preview.sh verify       run the accuracy harness (cargo test) the same way.
+#   ./preview.sh nav-sweep    keyboard-nav parity: a no-panic launch sweep of every
+#                             P0 surface across all four eras + Win10 focus-ring
+#                             captures. Output: tests/accuracy/captures/nav-sweep/
 #   ./preview.sh <component>  launch one component as a window on your CURRENT
 #                             session so you can click around. Components:
 #                             panel menu files control-panel system-properties
@@ -37,6 +40,10 @@ case "${1:-help}" in
     verify)
         build_if_needed
         exec bash "$here/tests/accuracy/nested-sway.sh"
+        ;;
+    nav-sweep)
+        build_if_needed
+        exec bash "$here/tests/accuracy/nav-sweep.sh"
         ;;
     panel|menu|files|control-panel|system-properties|security|run|properties|logoff|shutdown|setup)
         build_if_needed
