@@ -24,6 +24,7 @@ mod embedded_icons;
 mod fedora;
 mod filedialog;
 mod files;
+mod greeter;
 mod icons;
 mod install;
 mod installer;
@@ -78,6 +79,7 @@ COMMANDS:
     properties NAME TARGET   Launcher/file Properties dialog
     system-properties [--info|--devices|--users]   System facts / Device Manager / accounts
     pin [--set N|--check|--verify N|--clear]   Manage the sign-in PIN (argon2 hash)
+    greeter [--css|--conf [BG]]   Emit the LightDM Win10 greeter theme (palette-sourced)
     taskbar-properties   Taskbar and Start Menu Properties
     setup [--tui|--gui|--dry-run]   Install/configure MDE-Retro
     install [--assets]   Fetch Chicago95 + Win2k assets (first run)
@@ -180,6 +182,7 @@ fn main() -> ExitCode {
         "about" => about::run(rest),
         "system-properties" => system_properties::run(rest),
         "pin" => pin::run(rest),
+        "greeter" => greeter::run(rest),
         "taskbar-properties" => taskbar_properties::run(rest),
         "__wlr-list" => {
             wlr::debug_list();
