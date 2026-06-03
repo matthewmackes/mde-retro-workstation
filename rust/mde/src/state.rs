@@ -235,6 +235,12 @@ pub struct MenuState {
     /// Settings ▸ Network ▸ Data usage (E15.11): monthly limit in MB; 0 = no limit.
     #[serde(default)]
     pub data_limit_mb: u64,
+    /// Settings ▸ Accounts ▸ Your info (E10.1): friendly display name + avatar path
+    /// (both empty → fall back to the system user / `~/.face`).
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub account_picture: String,
     /// Win10 Explorer ▸ Quick access user-pinned folders (E8.3): appended to the
     /// auto-pinned standard folders in the Frequent-folders list.
     #[serde(default)]
@@ -301,6 +307,8 @@ impl Default for MenuState {
             hotspot_name: def_hotspot_name(),
             hotspot_password: String::new(),
             data_limit_mb: 0,
+            display_name: String::new(),
+            account_picture: String::new(),
             explorer_pins: Vec::new(),
             explorer_landing: def_explorer_landing(),
         }
@@ -421,6 +429,8 @@ mod tests {
             hotspot_name: "MyHotspot".into(),
             hotspot_password: "s3cret".into(),
             data_limit_mb: 2048,
+            display_name: "Ada Lovelace".into(),
+            account_picture: "/home/me/.face".into(),
             explorer_pins: vec![PathBuf::from("/home/me/Projects")],
             explorer_landing: "thispc".into(),
         };
