@@ -11,9 +11,20 @@
 *Load-bearing four — 2026-06-03:*
 - **Q8 Compositor → labwc.** Keep MDE-Retro's labwc substrate; MDE's sway-specific
   bits adapt to labwc/wlroots. The Win10 shell is the primary UX.
-- **Q16 Gluster mesh-home → PRECONDITION.** Mesh-home is always mounted; the
-  Workstation is **not** designed for single-box-only. Platform crates may assume
-  GFS-mounted XDG dirs + the mesh coordination substrate.
+- **Q16 mesh-storage → PRECONDITION, on LizardFS (NOT Gluster).** *(Revised
+  2026-06-03 against current MDE @ `6459e17`.)* Shared **mesh-storage** is a
+  precondition (the Workstation is not single-box-only), implemented by **LizardFS**
+  — `docs/design/v5.0.0-mesh-storage-lizardfs.md` (locked 2026-05-29) supersedes the
+  GlusterFS design **wholesale** (Gluster never shipped; no migration). Depends on
+  the Nebula fabric + the Bus. Drop **all** Gluster assumptions; the MESHFS-* tasks
+  are the LizardFS path. Mesh-storage `XDG` dirs are LizardFS-mounted.
+
+*Resolved by the refresh against current MDE (see §0.1):*
+- **Q4 terminology → MDE = "MackesDE for Workgroups" (a.k.a. MDE4WG)**, the platform,
+  releasing as **v10.0.0**. "Mackes Workstation" is the new Win10-shell fusion on top.
+- **Q11 D-Bus vs Bus → Bus.** The platform is retiring all MDE-internal D-Bus to Bus
+  topics (EPIC-RETIRE-DBUS; only FDO interop like `org.freedesktop.Notifications`
+  stays). Mackes Workstation surfaces consume the **Bus**, not internal D-Bus.
 - **Q1 Repo → MONOREPO.** One cargo workspace absorbs MDE's platform crates +
   MDE-Retro's shell + the Workbench as members. The existing repos become upstream
   history. (This is the final home for *this* plan once the repo exists.)
@@ -26,6 +37,22 @@ optimizes for one large integrated workspace, not a minimal shell. Per-crate reu
 is maximal (shared crates in one workspace). Remaining questions refine the daemon
 model, the bus, KDE Connect convergence, Win10-vs-Workbench placement, and the
 Workbench's look.
+
+## 0.1 Information currency
+
+The original review snapshot was **65 commits stale**; refreshed against current MDE
+**`6459e17`** (2026-06-03). Material deltas since the snapshot, folded into this plan:
+- **GlusterFS → LizardFS** for mesh-storage (Gluster fully retired).
+- Platform release is **v10.0.0 "MackesDE for Workgroups"** (= MDE / MDE4WG).
+- **D-Bus retirement** in progress (EPIC-RETIRE-DBUS) → Bus topics; FDO interop only.
+- **`mde-portal` has grown into a major surface** (Library / Control / Network layers,
+  a tag system, the Birthright wizard rendered inside Portal-full) — relevant to the
+  Win10-shell-vs-Portal-vs-Workbench surface question.
+- **QNM-Shared → `workgroup_root`** (EPIC-RETIRE-QNM); a large native **music**
+  player (`mde-music`/`mde-musicd`, AIR-*) shipped.
+- **Before producing the executable plan, the full feature inventory should be
+  re-derived against `6459e17`** — the architecture decisions hold, but per-crate
+  details (Portal scope, music, mesh-storage) moved.
 
 ## 1. Vision
 
