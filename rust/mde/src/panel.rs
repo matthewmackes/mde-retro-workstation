@@ -160,6 +160,15 @@ fn root_menu_xml(win10: bool) -> String {
     } else {
         "    <item label=\"Properties (Display)\">\n      <action name=\"Execute\"><command>mde display</command></action>\n    </item>"
     };
+    // Windows Security is a Win10-era surface (E14.10); the entry appears only
+    // there, so launching it from the classic eras is impossible (the classic menu
+    // stays byte-for-byte the skel). `mde security` itself also era-gates. The
+    // Win+Shift+S keybind is left for the authentic Snip shortcut (E16.4).
+    let security_item = if win10 {
+        "\n    <item label=\"Windows Security\">\n      <action name=\"Execute\"><command>mde security</command></action>\n    </item>"
+    } else {
+        ""
+    };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!-- MDE-Retro labwc menus. The root menu is the desktop right-click (Win2000
@@ -182,7 +191,7 @@ fn root_menu_xml(win10: bool) -> String {
     <item label="Set Up MDE-Retro...">
       <action name="Execute"><command>mde setup</command></action>
     </item>
-{display_item}
+{display_item}{security_item}
     <separator/>
     <item label="Reconfigure">
       <action name="Reconfigure"/>
@@ -1559,12 +1568,19 @@ mod tests {
         assert!(win10.contains("mde settings personalization"));
         assert!(!win10.contains("mde display"));
 
+        // Windows Security is Win10-only (E14.10) — present under Win10, absent in
+        // the classic menu (which therefore stays byte-for-byte the skel).
+        assert!(win10.contains("<item label=\"Windows Security\">"));
+        assert!(win10.contains("mde security"));
+
         let classic = root_menu_xml(false);
         assert!(classic.contains("<item label=\"Properties (Display)\">"));
         assert!(classic.contains("mde display"));
         assert!(!classic.contains("Personalize"));
+        assert!(!classic.contains("Windows Security"));
+        assert!(!classic.contains("mde security"));
 
-        // Only the Display entry varies — the rest of the menu is shared.
+        // The shared core of the menu is present in both eras.
         for item in [
             "mde menu",
             "mde run",
