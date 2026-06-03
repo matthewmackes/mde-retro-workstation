@@ -1324,10 +1324,12 @@ pub fn run(args: &[String]) -> ExitCode {
     // (main.rs has already set the palette from menu.json by now; the headless
     // --list/--lock-script debug paths above stay theme-independent for tests.)
     if !palette::is_windows10() {
-        eprintln!(
-            "mde settings: the Settings app is a Windows 10-era surface — use the Control Panel in this theme."
-        );
-        return ExitCode::SUCCESS;
+        // D4: the Win+I "settings" target is era-gated. The Settings app is the
+        // Win10 modern surface; the classic eras (Win2000 / Carbon) use the Control
+        // Panel — so route there in-process rather than no-op, making the one Win+I
+        // bind correct in every era (E20.6). The headless --list/--lock-script debug
+        // paths above already returned, so this only affects the GUI launch.
+        return crate::control_panel::run(&[]);
     }
     // Parse a positional category name plus an optional `--page <name>` deep-link
     // (E7.3): `mde settings personalization --page taskbar`. A positional that

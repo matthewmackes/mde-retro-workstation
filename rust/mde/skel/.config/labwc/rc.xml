@@ -36,8 +36,9 @@
   </snapping>
 
   <!-- Pointer (libinput) defaults. Settings ▸ Devices ▸ Mouse (E12.6) rewrites
-       this whole <libinput> block from menu.json and runs `labwc --reconfigure`;
-       it never touches the <mouse> block below (§7). naturalScroll/leftHanded are
+       this whole <libinput> block from menu.json and reconfigures labwc (the
+       `reconfigure` SIGHUP); it never touches the <mouse> block below (§7), so the
+       §7 invariant holds. naturalScroll/leftHanded are
        no by default; scrollFactor 1.00 = the neutral "3 lines" speed. -->
   <libinput>
     <device category="default">
@@ -94,7 +95,18 @@
     <keybind key="A-Tab"><action name="NextWindow"/></keybind>
     <keybind key="A-S-Tab"><action name="PreviousWindow"/></keybind>
 
-    <!-- Shell launchers (the old sway bindings). -->
+    <!-- ===== Windows 10 P0 keybind table (E11-E15; era-gated, E20.6) =====
+         One keymap serves every era: each `mde` subcommand self-gates on the active
+         theme (read from menu.json at launch), so the SAME bind is correct in all
+         eras — Win10 draws the modern surface; the classic eras fall through or are
+         inert. None of these <keyboard> binds touch the §7 <mouse><default/> block
+         below (the invariant that keeps every built-in mousebind alive).
+           Win / Ctrl+Esc -> mde start          per-era Start (Win10 tiled / classic)
+           Win+A          -> mde action-center   Action Center pane (E3)
+           Win+Tab        -> mde task-view       Task View overview (E4)
+           Win+S          -> mde search          Search flyout (classic Start otherwise)
+           Win+I          -> mde settings        Settings (Win10) / Control Panel (classic, D4)
+         (Win+E/X/V/P + the PrintScreen family are the productivity binds below.) -->
     <keybind key="W-d"><action name="Execute"><command>mde start</command></action></keybind>
     <keybind key="C-Escape"><action name="Execute"><command>mde start</command></action></keybind>
     <keybind key="W-e"><action name="Execute"><command>mde files</command></action></keybind>
@@ -117,8 +129,9 @@
     <keybind key="Print"><action name="Execute"><command>mde snip clip</command></action></keybind>
     <keybind key="W-Print"><action name="Execute"><command>mde snip full</command></action></keybind>
     <keybind key="A-Print"><action name="Execute"><command>mde snip window</command></action></keybind>
-    <!-- Win10 Settings (Win+I). `mde settings` is the modern Settings app; under
-         non-Win10 eras `mde control-panel` is the gear target instead. -->
+    <!-- Win10 Settings (Win+I). `mde settings` is the modern Settings app under the
+         Win10 era; under the classic eras it routes in-process to the Control Panel
+         (the era's gear target, D4) — so this one bind is correct everywhere. -->
     <keybind key="W-i"><action name="Execute"><command>mde settings</command></action></keybind>
     <!-- Project / multi-display pane (Win+P — the Windows projection shortcut).
          Win10-only; `mde project` exits without drawing under the classic eras,

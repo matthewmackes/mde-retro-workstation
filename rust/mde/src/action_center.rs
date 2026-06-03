@@ -57,6 +57,13 @@ enum Message {
 }
 
 pub fn run_center(_args: &[String]) -> ExitCode {
+    // No compositor → nothing to anchor the layer-shell pane to; exit cleanly
+    // rather than panic in init (matches search/task-view/project). Guard before
+    // the read-stamp so a headless invocation (e.g. the E20.7 no-panic sweep) is a
+    // pure no-op and doesn't clear the badge.
+    if std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        return ExitCode::SUCCESS;
+    }
     // Opening the center marks everything read, so the panel badge clears (E3.9).
     notifyd::stamp_last_read();
     match launch() {
