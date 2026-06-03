@@ -185,6 +185,21 @@ pub fn airplane_on() -> bool {
 
 // --- action setters (consumed by the Network flyout, E15.2) -----------------
 
+/// Connect to a Wi-Fi network (E15.4): `nmcli device wifi connect <ssid>
+/// [password <key>]`. An empty key connects to an open network. Best-effort.
+pub fn wifi_connect(ssid: &str, password: &str) -> bool {
+    let mut args = vec!["device", "wifi", "connect", ssid];
+    if !password.is_empty() {
+        args.push("password");
+        args.push(password);
+    }
+    Command::new("nmcli")
+        .args(&args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Turn the Wi-Fi radio on/off (`nmcli radio wifi on|off`). Best-effort.
 pub fn radio_wifi(on: bool) -> bool {
     Command::new("nmcli")

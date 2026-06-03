@@ -9,7 +9,9 @@
 use std::process::{exit, ExitCode};
 
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, container, mouse_area, scrollable, text, Column, Row, Space};
+use iced::widget::{
+    button, container, mouse_area, scrollable, text, text_input, Column, Row, Space,
+};
 use iced::{event, keyboard, Background, Border, Color, Element, Event, Length, Padding, Task};
 use iced_layershell::build_pattern::{application, MainSettings};
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity};
@@ -27,6 +29,9 @@ struct Flyout {
     wifis: Vec<Wifi>,
     wifi_on: bool,
     airplane: bool,
+    /// The SSID a connect is being entered for (E15.4), and the typed key.
+    selected: Option<String>,
+    password: String,
 }
 
 #[to_layer_message]
@@ -35,11 +40,14 @@ enum Message {
     ToggleWifi,
     ToggleAirplane,
     OpenSettings,
+    SelectSsid(String),
+    Password(String),
+    Connect,
     Close,
     Event(Event),
 }
 
-pub fn run(_args: &[String]) -> ExitCode {
+pub fn run(args: &[String]) -> ExitCode {
     // Win10-era only; other eras use nm-connection-editor via the panel glyph (E15.3).
     if !palette::is_windows10() {
         return ExitCode::SUCCESS;
@@ -47,7 +55,14 @@ pub fn run(_args: &[String]) -> ExitCode {
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {
         return ExitCode::SUCCESS;
     }
-    match launch() {
+    // `--select <ssid>` opens with that network pre-selected (its key prompt shown
+    // for a secured one) — a "connect to X" deep-link + the capture hook.
+    let preselect = args
+        .iter()
+        .position(|a| a == "--select")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    match launch(preselect) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("mde net-flyout: {e}");
@@ -56,7 +71,7 @@ pub fn run(_args: &[String]) -> ExitCode {
     }
 }
 
-fn launch() -> Result<(), iced_layershell::Error> {
+fn launch(preselect: Option<String>) -> Result<(), iced_layershell::Error> {
     application(namespace, update, view)
         .style(style)
         .subscription(|_: &Flyout| {
@@ -79,13 +94,15 @@ fn launch() -> Result<(), iced_layershell::Error> {
             },
             ..Default::default()
         })
-        .run_with(|| {
+        .run_with(move || {
             (
                 Flyout {
                     conns: nm::active_connections(),
                     wifis: nm::wifi_list(),
                     wifi_on: nm::wifi_enabled(),
                     airplane: nm::airplane_on(),
+                    selected: preselect.clone(),
+                    password: String::new(),
                 },
                 Task::none(),
             )
@@ -121,6 +138,25 @@ fn update(state: &mut Flyout, message: Message) -> Task<Message> {
                 .args(["settings", "network"])
                 .spawn();
             exit(0);
+        }
+        Message::SelectSsid(ssid) => {
+            // Open networks connect immediately; secured ones reveal a key field.
+            let secured = state.wifis.iter().any(|w| w.ssid == ssid && w.secured);
+            if secured {
+                state.selected = Some(ssid);
+                state.password.clear();
+            } else {
+                nm::wifi_connect(&ssid, "");
+                state.conns = nm::active_connections();
+            }
+        }
+        Message::Password(p) => state.password = p,
+        Message::Connect => {
+            if let Some(ssid) = state.selected.take() {
+                nm::wifi_connect(&ssid, &state.password);
+                state.password.clear();
+                state.conns = nm::active_connections();
+            }
         }
         Message::Close => exit(0),
         Message::Event(Event::Keyboard(keyboard::Event::KeyPressed {
@@ -167,6 +203,16 @@ fn pad(t: f32, r: f32, b: f32, l: f32) -> Padding {
     }
 }
 
+/// A 1–4 bar signal indicator from a percentage (E15.4).
+fn signal_bars(pct: u8) -> &'static str {
+    match pct {
+        0..=25 => "▂",
+        26..=50 => "▂▄",
+        51..=75 => "▂▄▆",
+        _ => "▂▄▆█",
+    }
+}
+
 fn view(state: &Flyout) -> Element<'_, Message> {
     let header = match state.conns.iter().find(|c| c.state == "activated") {
         Some(c) => text(format!("Connected — {}", c.name))
@@ -176,31 +222,52 @@ fn view(state: &Flyout) -> Element<'_, Message> {
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT)),
     };
-    // Available Wi-Fi networks (display; the connect flow is E15.4).
+    // Available Wi-Fi networks. Click a row to connect — open networks connect
+    // immediately, secured ones reveal an inline key field (E15.4).
     let mut list = Column::new().spacing(0.0);
     for w in &state.wifis {
-        list = list.push(
-            Row::new()
-                .spacing(8.0)
-                .push(
-                    text(w.ssid.clone())
-                        .size(metrics::UI_PX)
-                        .width(Length::Fill)
-                        .color(palette::color(palette::WINDOW_TEXT)),
-                )
-                .push(
-                    text(if w.secured { "\u{f023}" } else { " " }) // nf lock
-                        .size(metrics::PANEL_GLYPH_PX)
-                        .font(mde_ui::font::NERD)
-                        .color(palette::color(palette::GRAY_TEXT)),
-                )
-                .push(
-                    text(format!("{}%", w.signal))
-                        .size(metrics::UI_PX)
-                        .color(palette::color(palette::GRAY_TEXT)),
-                )
-                .padding(pad(3.0, 6.0, 3.0, 6.0)),
-        );
+        let row = Row::new()
+            .spacing(8.0)
+            .push(
+                text(w.ssid.clone())
+                    .size(metrics::UI_PX)
+                    .width(Length::Fill)
+                    .color(palette::color(palette::WINDOW_TEXT)),
+            )
+            .push(
+                text(if w.secured { "\u{f023}" } else { " " }) // nf lock
+                    .size(metrics::PANEL_GLYPH_PX)
+                    .font(mde_ui::font::NERD)
+                    .color(palette::color(palette::GRAY_TEXT)),
+            )
+            .push(
+                text(signal_bars(w.signal))
+                    .size(metrics::UI_PX)
+                    .color(palette::color(palette::GRAY_TEXT)),
+            )
+            .padding(pad(3.0, 6.0, 3.0, 6.0));
+        list = list.push(mouse_area(row).on_press(Message::SelectSsid(w.ssid.clone())));
+        // The inline password prompt for the selected secured network.
+        if state.selected.as_deref() == Some(w.ssid.as_str()) {
+            list = list.push(
+                Row::new()
+                    .spacing(6.0)
+                    .padding(pad(2.0, 6.0, 6.0, 18.0))
+                    .push(
+                        text_input("Password", &state.password)
+                            .on_input(Message::Password)
+                            .on_submit(Message::Connect)
+                            .secure(true)
+                            .size(metrics::UI_PX)
+                            .width(Length::Fill),
+                    )
+                    .push(
+                        button(text("Connect").size(metrics::UI_PX))
+                            .on_press(Message::Connect)
+                            .padding(pad(4.0, 10.0, 4.0, 10.0)),
+                    ),
+            );
+        }
     }
     let pills = Row::new()
         .spacing(8.0)
