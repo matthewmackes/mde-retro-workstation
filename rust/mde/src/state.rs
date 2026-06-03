@@ -227,6 +227,11 @@ pub struct MenuState {
     pub update_restart_asap: bool,
     #[serde(default)]
     pub update_restart_notify: bool,
+    /// Settings ▸ Network ▸ Mobile hotspot (E15.8): the AP SSID + key.
+    #[serde(default = "def_hotspot_name")]
+    pub hotspot_name: String,
+    #[serde(default)]
+    pub hotspot_password: String,
     /// Win10 Explorer ▸ Quick access user-pinned folders (E8.3): appended to the
     /// auto-pinned standard folders in the Frequent-folders list.
     #[serde(default)]
@@ -246,6 +251,10 @@ fn def_taskbar_location() -> String {
 }
 fn def_search_mode() -> String {
     "button".into()
+}
+/// Default mobile-hotspot SSID (E15.8).
+fn def_hotspot_name() -> String {
+    "MackesDE".into()
 }
 /// Default active-hours window (E13.5): 08:00–17:00, the Win10 default.
 fn def_active_start() -> u8 {
@@ -286,6 +295,8 @@ impl Default for MenuState {
             update_active_end: def_active_end(),
             update_restart_asap: false,
             update_restart_notify: false,
+            hotspot_name: def_hotspot_name(),
+            hotspot_password: String::new(),
             explorer_pins: Vec::new(),
             explorer_landing: def_explorer_landing(),
         }
@@ -403,6 +414,8 @@ mod tests {
             update_active_end: 18,
             update_restart_asap: true,
             update_restart_notify: true,
+            hotspot_name: "MyHotspot".into(),
+            hotspot_password: "s3cret".into(),
             explorer_pins: vec![PathBuf::from("/home/me/Projects")],
             explorer_landing: "thispc".into(),
         };

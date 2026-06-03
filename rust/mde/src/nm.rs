@@ -271,6 +271,34 @@ pub fn radio_wifi(on: bool) -> bool {
         .unwrap_or(false)
 }
 
+/// Start/stop a Wi-Fi hotspot (E15.8): `nmcli device wifi hotspot [ssid <n>
+/// password <p>]` to share the connection, or `nmcli connection down Hotspot` to
+/// stop it. Best-effort.
+pub fn set_hotspot(on: bool, ssid: &str, password: &str) -> bool {
+    if on {
+        let mut args = vec!["device", "wifi", "hotspot"];
+        if !ssid.is_empty() {
+            args.push("ssid");
+            args.push(ssid);
+        }
+        if !password.is_empty() {
+            args.push("password");
+            args.push(password);
+        }
+        Command::new("nmcli")
+            .args(&args)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    } else {
+        Command::new("nmcli")
+            .args(["connection", "down", "Hotspot"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
+
 /// Block/unblock all radios — airplane mode (`rfkill block|unblock all`).
 pub fn set_airplane(on: bool) -> bool {
     Command::new("rfkill")

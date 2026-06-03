@@ -159,6 +159,8 @@ enum Kind {
     Ethernet,
     /// The native Network & Internet ▸ VPN page (E15.7).
     Vpn,
+    /// The native Network & Internet ▸ Mobile hotspot page (E15.8).
+    Hotspot,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -261,6 +263,10 @@ const CATEGORIES: &[Category] = &[
             Page {
                 title: "VPN",
                 kind: Kind::Vpn,
+            },
+            Page {
+                title: "Mobile hotspot",
+                kind: Kind::Hotspot,
             },
             Page {
                 title: "Proxy",
@@ -483,6 +489,9 @@ struct Settings {
     wifi_autoconnect: bool,
     /// VPN/WireGuard connections (E15.7), read at settings start.
     vpns: Vec<crate::nm::Conn>,
+    /// Mobile hotspot (E15.8): the AP SSID + key, mirroring `state`.
+    hotspot_name: String,
+    hotspot_password: String,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -554,6 +563,10 @@ enum Message {
     // VPN page (E15.7).
     VpnToggle(String, bool),
     AddVpn,
+    // Mobile hotspot page (E15.8).
+    SetHotspotOn(bool),
+    HotspotName(String),
+    HotspotPassword(String),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -640,6 +653,7 @@ fn list() -> ExitCode {
                 Kind::Wifi => "(native: Wi-Fi)".to_string(),
                 Kind::Ethernet => "(native: Ethernet)".to_string(),
                 Kind::Vpn => "(native: VPN)".to_string(),
+                Kind::Hotspot => "(native: Mobile hotspot)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -707,6 +721,8 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 wifi_scanning: false,
                 wifi_autoconnect: true,
                 vpns: crate::nm::vpn_list(),
+                hotspot_name: st.hotspot_name.clone(),
+                hotspot_password: st.hotspot_password.clone(),
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -962,6 +978,18 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         }
         Message::AddVpn => {
             let _ = Command::new("nm-connection-editor").spawn();
+        }
+        Message::SetHotspotOn(on) => {
+            crate::nm::set_hotspot(on, &state.hotspot_name, &state.hotspot_password);
+            state.net_conns = crate::nm::active_connections(); // reflect Hotspot
+        }
+        Message::HotspotName(n) => {
+            state.hotspot_name = n;
+            persist(state);
+        }
+        Message::HotspotPassword(p) => {
+            state.hotspot_password = p;
+            persist(state);
         }
     }
     Task::none()
@@ -1300,6 +1328,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Wifi
         | Kind::Ethernet
         | Kind::Vpn
+        | Kind::Hotspot
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -1355,6 +1384,8 @@ fn persist(state: &Settings) {
     st.update_active_end = state.active_end;
     st.update_restart_asap = state.restart_asap;
     st.update_restart_notify = state.restart_notify;
+    st.hotspot_name = state.hotspot_name.clone();
+    st.hotspot_password = state.hotspot_password.clone();
     let _ = crate::state::save(&st);
 }
 
@@ -1594,6 +1625,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Wifi => wifi_page(state),
         Kind::Ethernet => ethernet_page(state),
         Kind::Vpn => vpn_page(state),
+        Kind::Hotspot => hotspot_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -1955,6 +1987,59 @@ fn update_advanced_page(state: &Settings) -> Element<'_, Message> {
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT)),
         )
+        .into()
+}
+
+/// Network & Internet ▸ Mobile hotspot (E15.8): a "Share my Internet connection"
+/// toggle (drives `nmcli device wifi hotspot`) over the network name + key fields
+/// (persisted to state — `nmcli` reads them on enable). The toggle's on-state is
+/// the live "Hotspot" connection. (No modal — settings.rs is a flat shell; the
+/// name/key edit is inline. The same `nm::set_hotspot` is callable from the AC tile.)
+fn hotspot_page(state: &Settings) -> Element<'_, Message> {
+    let on = state
+        .net_conns
+        .iter()
+        .any(|c| c.name == "Hotspot" && c.state == "activated");
+    let field = |label: &'static str, value: &str, msg: fn(String) -> Message, secure: bool| {
+        Row::new()
+            .spacing(8.0)
+            .align_y(iced::alignment::Vertical::Center)
+            .push(
+                text(label)
+                    .size(metrics::UI_PX)
+                    .width(Length::Fixed(130.0))
+                    .color(palette::color(palette::WINDOW_TEXT)),
+            )
+            .push(
+                text_input(label, value)
+                    .on_input(msg)
+                    .secure(secure)
+                    .size(metrics::UI_PX)
+                    .width(Length::Fixed(220.0)),
+            )
+    };
+    Column::new()
+        .spacing(12.0)
+        .push(
+            checkbox("Share my Internet connection with other devices", on)
+                .on_toggle(Message::SetHotspotOn)
+                .size(metrics::UI_PX)
+                .text_size(metrics::UI_PX)
+                .spacing(8.0)
+                .style(mde_ui::checkbox_style),
+        )
+        .push(field(
+            "Network name",
+            &state.hotspot_name,
+            Message::HotspotName,
+            false,
+        ))
+        .push(field(
+            "Network password",
+            &state.hotspot_password,
+            Message::HotspotPassword,
+            true,
+        ))
         .into()
 }
 
