@@ -196,11 +196,16 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    // No compositor (or an explicit --tui) → a non-interactive dry walkthrough that
-    // applies detected defaults, so the path is exercisable headlessly without a
-    // panic in the layer-shell/iced init.
+    // No compositor (or an explicit --tui) → text mode. On a real console this is the
+    // interactive ratatui Region/Keyboard picker (E11.2); when stdout/stdin isn't a TTY
+    // (scripts, CI, the capture harness) it's the non-interactive walkthrough that
+    // applies detected defaults — so the path never blocks waiting on a keypress.
     let tui = args.iter().any(|a| a == "--tui");
     if tui || std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            return interactive::run(dry);
+        }
         return headless(dry);
     }
 
@@ -295,6 +300,175 @@ fn headless(dry: bool) -> ExitCode {
         if dry { ", dry-run" } else { "" }
     );
     ExitCode::SUCCESS
+}
+
+/// Interactive text-mode Region + Keyboard picker (E11.2) for `mde setup --era=win10
+/// --tui` on a real console — arrow-key single-select, pre-highlighted to the detected
+/// values, applying the same `localectl`/`keyboard::apply_layout` backends as the GUI
+/// (echoed under `--dry-run`). The non-TTY fallback stays [`headless`] (auto-defaults).
+mod interactive {
+    use super::{apply_keymap, apply_locale, detected_layout, detected_region, finish, REGIONS};
+    use crossterm::event::{self, Event, KeyCode};
+    use ratatui::layout::{Alignment, Constraint, Layout};
+    use ratatui::style::{Color, Modifier, Style};
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::{Block, Paragraph};
+    use ratatui::Frame;
+    use std::process::ExitCode;
+
+    const BG: Color = Color::Indexed(17); // deep blue field
+    const ACCENT: Color = Color::Indexed(33); // Win10 selection blue
+    const BAR: Color = Color::Indexed(19);
+
+    /// A single-select cursor over `len` rows. Pure + unit-tested; the ratatui event
+    /// loop only mutates state through this, so the navigation logic is verifiable
+    /// without a TTY.
+    pub(super) struct Picker {
+        pub(super) len: usize,
+        pub(super) cursor: usize,
+    }
+
+    impl Picker {
+        pub(super) fn new(len: usize, start: usize) -> Self {
+            Self {
+                len,
+                cursor: if len == 0 { 0 } else { start.min(len - 1) },
+            }
+        }
+
+        /// Move the cursor by `delta`, clamped to `[0, len-1]` (no wrap). A no-op on an
+        /// empty list.
+        pub(super) fn move_cursor(&mut self, delta: isize) {
+            if self.len == 0 {
+                return;
+            }
+            let max = (self.len - 1) as isize;
+            self.cursor = (self.cursor as isize + delta).clamp(0, max) as usize;
+        }
+    }
+
+    /// Which picker the flow is showing.
+    #[derive(PartialEq)]
+    enum Phase {
+        Region,
+        Keyboard,
+    }
+
+    pub(super) fn run(dry: bool) -> ExitCode {
+        let mut terminal = ratatui::init();
+        let res = event_loop(&mut terminal, dry);
+        ratatui::restore();
+        res
+    }
+
+    fn event_loop(terminal: &mut ratatui::DefaultTerminal, dry: bool) -> ExitCode {
+        let layouts = crate::keyboard::LAYOUTS;
+        let mut phase = Phase::Region;
+        let mut region = Picker::new(REGIONS.len(), detected_region());
+        let mut keyboard = Picker::new(layouts.len(), detected_layout());
+        loop {
+            let _ = terminal.draw(|f| draw(f, &phase, &region, &keyboard));
+            let Ok(Event::Key(k)) = event::read() else {
+                continue;
+            };
+            // Ignore key-release events (crossterm reports both on some terminals).
+            if k.kind != crossterm::event::KeyEventKind::Press {
+                continue;
+            }
+            let active = if phase == Phase::Region {
+                &mut region
+            } else {
+                &mut keyboard
+            };
+            match k.code {
+                KeyCode::Up => active.move_cursor(-1),
+                KeyCode::Down => active.move_cursor(1),
+                KeyCode::Enter if phase == Phase::Region => phase = Phase::Keyboard,
+                KeyCode::Enter => {
+                    // Keyboard confirmed → apply both choices and finish.
+                    apply_locale(REGIONS[region.cursor].1, dry);
+                    apply_keymap(layouts[keyboard.cursor].0, dry);
+                    finish(dry);
+                    return ExitCode::SUCCESS;
+                }
+                KeyCode::Backspace if phase == Phase::Keyboard => phase = Phase::Region,
+                KeyCode::Esc | KeyCode::F(3) => return ExitCode::from(1),
+                _ => {}
+            }
+        }
+    }
+
+    fn draw(f: &mut Frame, phase: &Phase, region: &Picker, keyboard: &Picker) {
+        let layouts = crate::keyboard::LAYOUTS;
+        let area = f.area();
+        f.render_widget(Block::default().style(Style::default().bg(BG)), area);
+        let rows = Layout::vertical([
+            Constraint::Length(2), // title
+            Constraint::Min(1),    // list
+            Constraint::Length(1), // hint bar
+        ])
+        .split(area);
+
+        let (title, items, cur): (&str, Vec<&str>, usize) = match phase {
+            Phase::Region => (
+                "Choose your region",
+                REGIONS.iter().map(|(n, _)| *n).collect(),
+                region.cursor,
+            ),
+            Phase::Keyboard => (
+                "Choose your keyboard layout",
+                layouts.iter().map(|(_, d)| *d).collect(),
+                keyboard.cursor,
+            ),
+        };
+
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                title,
+                Style::default()
+                    .fg(Color::White)
+                    .bg(BG)
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .alignment(Alignment::Center),
+            rows[0],
+        );
+
+        // Window the list around the cursor so it stays visible on short terminals.
+        let h = rows[1].height as usize;
+        let offset = if h > 0 && cur >= h { cur + 1 - h } else { 0 };
+        let lines: Vec<Line> = items
+            .iter()
+            .enumerate()
+            .skip(offset)
+            .take(h.max(1))
+            .map(|(i, label)| {
+                let st = if i == cur {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(ACCENT)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White).bg(BG)
+                };
+                Line::from(Span::styled(format!("  {label}"), st))
+            })
+            .collect();
+        f.render_widget(Paragraph::new(lines), rows[1]);
+
+        let hint = match phase {
+            Phase::Region => " \u{2191}\u{2193} Select   ENTER Next   ESC Cancel ",
+            Phase::Keyboard => {
+                " \u{2191}\u{2193} Select   ENTER Finish   BACKSPACE Back   ESC Cancel "
+            }
+        };
+        f.render_widget(
+            Paragraph::new(hint)
+                .style(Style::default().fg(Color::White).bg(BAR))
+                .alignment(Alignment::Center),
+            rows[2],
+        );
+    }
 }
 
 /// `localectl set-locale LANG=<locale>` — echoed under dry-run.
@@ -1003,5 +1177,37 @@ mod tests {
         // An unknown/empty LANG must not panic and lands on a valid index.
         assert!(detected_region() < REGIONS.len());
         assert!(detected_layout() < crate::keyboard::LAYOUTS.len());
+    }
+
+    // E11.2 — the interactive TUI picker's navigation logic (the part that's
+    // verifiable without a TTY; the ratatui render + event loop need a real console).
+    use super::interactive::Picker;
+
+    #[test]
+    fn picker_starts_at_detected_and_clamps_both_ends() {
+        let mut p = Picker::new(REGIONS.len(), 3);
+        assert_eq!(p.cursor, 3, "pre-highlighted to the detected index");
+        p.move_cursor(-1);
+        assert_eq!(p.cursor, 2);
+        p.move_cursor(-10);
+        assert_eq!(p.cursor, 0, "clamps at the top, no wrap");
+        p.move_cursor(1000);
+        assert_eq!(p.cursor, REGIONS.len() - 1, "clamps at the bottom, no wrap");
+    }
+
+    #[test]
+    fn picker_start_index_clamps_into_range() {
+        // A detected index past the end (e.g. a stale layout list) is clamped, not OOB.
+        let p = Picker::new(3, 99);
+        assert_eq!(p.cursor, 2);
+    }
+
+    #[test]
+    fn picker_on_empty_list_is_a_safe_noop() {
+        let mut p = Picker::new(0, 5);
+        assert_eq!(p.cursor, 0);
+        p.move_cursor(1);
+        p.move_cursor(-1);
+        assert_eq!(p.cursor, 0);
     }
 }
