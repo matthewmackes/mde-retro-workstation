@@ -64,6 +64,17 @@ is maximal (shared crates in one workspace). Remaining questions refine the daem
 model, the bus, KDE Connect convergence, Win10-vs-Workbench placement, and the
 Workbench's look.
 
+*Batch 3 — placement, 2026-06-03:*
+- **Q34 first-run → merged Win10 OOBE + mesh enrolment.** The shipped Win10 OOBE
+  gains Birthright's stages (mesh enrolment/pairing, DND) as Win10-styled steps —
+  one first-run that also enrols the node on the mesh.
+- **Q31 VoIP → a Win10 "Phone/Calls" app + incoming-call toast/HUD** (reuse
+  `mde-voice` + `mde-voice-hud`).
+- **Q32 compute → a Workbench role** ("Virtualization & Containers" — KVM + Podman),
+  fitting the Manage-Your-Server console.
+- **Q29 files → Win10 Explorer primary; mesh/peer locations + mesh-storage fold into
+  Quick access** (reuse `mde-files`' mesh-browse backend; retire its separate UI).
+
 ## 0.1 Information currency
 
 The original review snapshot was **65 commits stale**; refreshed against current MDE
