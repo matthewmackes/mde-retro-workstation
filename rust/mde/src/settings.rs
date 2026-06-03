@@ -153,6 +153,8 @@ enum Kind {
     UpdateAdvanced,
     /// The native Network & Internet ▸ Status page (E15.5).
     NetworkStatus,
+    /// The native Network & Internet ▸ Wi-Fi page (E15.6).
+    Wifi,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -246,7 +248,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "Wi-Fi",
-                kind: Kind::Deferred,
+                kind: Kind::Wifi,
             },
             Page {
                 title: "VPN",
@@ -466,6 +468,11 @@ struct Settings {
     /// firewalld zone (Private/Public), read live from nmcli.
     net_conns: Vec<crate::nm::Conn>,
     net_zone: String,
+    /// Wi-Fi page (E15.6): the scanned networks (None = not yet scanned), whether a
+    /// scan is in flight, and the "auto-connect to known networks" state.
+    wifis: Option<Vec<crate::nm::Wifi>>,
+    wifi_scanning: bool,
+    wifi_autoconnect: bool,
     /// Cached install state for the `fedora::TOOLS` command of a viewed Tool
     /// page (computed lazily — `is_installed` spawns subprocesses).
     installed: HashMap<&'static str, bool>,
@@ -530,6 +537,10 @@ enum Message {
     // Network status page (E15.5).
     SetNetPrivate(bool),
     OpenNetEditor,
+    // Wi-Fi page (E15.6).
+    WifiScanned(Vec<crate::nm::Wifi>),
+    ConnectSsid(String),
+    SetWifiAutoconnect(bool),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -613,6 +624,7 @@ fn list() -> ExitCode {
                 Kind::UpdateHistory => "(native: Update history)".to_string(),
                 Kind::UpdateAdvanced => "(native: Advanced options)".to_string(),
                 Kind::NetworkStatus => "(native: Network status)".to_string(),
+                Kind::Wifi => "(native: Wi-Fi)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -676,6 +688,9 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 auto_mode: crate::sysinfo::auto_mode(),
                 net_conns,
                 net_zone,
+                wifis: None,
+                wifi_scanning: false,
+                wifi_autoconnect: true,
                 installed: HashMap::new(),
             };
             cache_install(&mut s);
@@ -910,6 +925,21 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         Message::OpenNetEditor => {
             let _ = Command::new("nm-connection-editor").spawn();
         }
+        Message::WifiScanned(list) => {
+            state.wifi_scanning = false;
+            state.wifis = Some(list);
+        }
+        Message::ConnectSsid(ssid) => {
+            // Hand the connect (key prompt) to the flyout's flow, pre-selected.
+            let exe = std::env::current_exe().unwrap_or_else(|_| "mde".into());
+            let _ = Command::new(exe)
+                .args(["net-flyout", "--select", &ssid])
+                .spawn();
+        }
+        Message::SetWifiAutoconnect(on) => {
+            crate::nm::set_wifi_autoconnect(on);
+            state.wifi_autoconnect = on;
+        }
     }
     Task::none()
 }
@@ -1047,8 +1077,26 @@ fn maybe_load(state: &mut Settings) -> Task<Message> {
             state.history_loading = true;
             fetch_history_task()
         }
+        Some(Kind::Wifi) if state.wifis.is_none() && !state.wifi_scanning => {
+            state.wifi_scanning = true;
+            state.wifi_autoconnect = crate::nm::wifi_autoconnect();
+            wifi_scan_task()
+        }
         _ => Task::none(),
     }
+}
+
+/// Scan Wi-Fi off the UI thread (E15.6) — `nmcli dev wifi` can take seconds, so it
+/// runs on tokio's blocking pool and delivers via `Message::WifiScanned`.
+fn wifi_scan_task() -> Task<Message> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(crate::nm::wifi_list)
+                .await
+                .unwrap_or_default()
+        },
+        Message::WifiScanned,
+    )
 }
 
 /// Run `pkexec dnf upgrade -y` off the UI thread (E13.3 Install). Best-effort; the
@@ -1226,6 +1274,7 @@ fn open_current(state: &mut Settings) {
         | Kind::UpdateHistory
         | Kind::UpdateAdvanced
         | Kind::NetworkStatus
+        | Kind::Wifi
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -1517,6 +1566,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::UpdateHistory => update_history_page(state),
         Kind::UpdateAdvanced => update_advanced_page(state),
         Kind::NetworkStatus => network_status_page(state),
+        Kind::Wifi => wifi_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -1878,6 +1928,76 @@ fn update_advanced_page(state: &Settings) -> Element<'_, Message> {
             .size(metrics::UI_PX)
             .color(palette::color(palette::GRAY_TEXT)),
         )
+        .into()
+}
+
+/// Network & Internet ▸ Wi-Fi (E15.6): an "auto-connect to known networks" toggle
+/// over the scanned SSID list (ssid + lock + signal % + Connect — the connect key
+/// prompt is handed to the flyout, E15.4). Scanned async on show.
+fn wifi_page(state: &Settings) -> Element<'_, Message> {
+    let toggle = checkbox(
+        "Automatically connect to known networks",
+        state.wifi_autoconnect,
+    )
+    .on_toggle(Message::SetWifiAutoconnect)
+    .size(metrics::UI_PX)
+    .text_size(metrics::UI_PX)
+    .spacing(8.0)
+    .style(mde_ui::checkbox_style);
+    let body: Element<Message> = if state.wifi_scanning || state.wifis.is_none() {
+        text("Scanning for networks…")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::GRAY_TEXT))
+            .into()
+    } else {
+        match &state.wifis {
+            Some(list) if !list.is_empty() => {
+                let mut col = Column::new().spacing(0.0);
+                for w in list {
+                    col = col.push(
+                        Row::new()
+                            .spacing(8.0)
+                            .align_y(iced::alignment::Vertical::Center)
+                            .push(
+                                text(w.ssid.clone())
+                                    .size(metrics::UI_PX)
+                                    .width(Length::Fill)
+                                    .color(palette::color(palette::WINDOW_TEXT)),
+                            )
+                            .push(
+                                text(if w.secured { "\u{f023}" } else { " " })
+                                    .size(metrics::PANEL_GLYPH_PX)
+                                    .font(mde_ui::font::NERD)
+                                    .color(palette::color(palette::GRAY_TEXT)),
+                            )
+                            .push(
+                                text(format!("{}%", w.signal))
+                                    .size(metrics::UI_PX)
+                                    .color(palette::color(palette::GRAY_TEXT)),
+                            )
+                            .push(
+                                button(text("Connect").size(metrics::UI_PX))
+                                    .on_press(Message::ConnectSsid(w.ssid.clone()))
+                                    .padding(Padding::from([2.0, 10.0]))
+                                    .style(tile_style),
+                            )
+                            .padding(Padding::from([3.0, 6.0])),
+                    );
+                }
+                container(scrollable(col).style(mde_ui::scrollbar))
+                    .height(Length::Fill)
+                    .into()
+            }
+            _ => text("No networks found.")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT))
+                .into(),
+        }
+    };
+    Column::new()
+        .spacing(12.0)
+        .push(toggle)
+        .push(container(body).height(Length::Fill))
         .into()
 }
 

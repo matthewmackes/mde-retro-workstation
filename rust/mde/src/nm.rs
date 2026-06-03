@@ -142,6 +142,41 @@ pub fn device_bytes(dev: &str) -> (u64, u64) {
     (read("rx_bytes"), read("tx_bytes"))
 }
 
+/// Parse saved Wi-Fi connection names from `nmcli -t -f NAME,TYPE connection show`
+/// (TYPE is a wireless type). The Wi-Fi page's auto-connect toggle targets these.
+pub fn parse_saved_wifi(out: &str) -> Vec<String> {
+    out.lines()
+        .filter_map(|l| {
+            let f = split_terse(l);
+            (f.len() >= 2 && !f[0].is_empty() && f[1].contains("wireless")).then(|| f[0].clone())
+        })
+        .collect()
+}
+
+/// Saved Wi-Fi connection names (`nmcli connection show`).
+pub fn saved_wifi() -> Vec<String> {
+    parse_saved_wifi(&nmcli(&["-t", "-f", "NAME,TYPE", "connection", "show"]))
+}
+
+/// Whether saved Wi-Fi auto-connects (reads the first saved network's
+/// `connection.autoconnect`; default on when none are saved) — the Wi-Fi page (E15.6).
+pub fn wifi_autoconnect() -> bool {
+    saved_wifi()
+        .first()
+        .map(|n| nmcli(&["-g", "connection.autoconnect", "connection", "show", n]).trim() == "yes")
+        .unwrap_or(true)
+}
+
+/// Set `connection.autoconnect` on every saved Wi-Fi network (E15.6). Best-effort.
+pub fn set_wifi_autoconnect(on: bool) {
+    let v = if on { "yes" } else { "no" };
+    for n in saved_wifi() {
+        let _ = Command::new("nmcli")
+            .args(["connection", "modify", &n, "connection.autoconnect", v])
+            .status();
+    }
+}
+
 /// A connection's firewalld zone (`nmcli -g connection.zone connection show <name>`)
 /// — the Network status page's Private/Public profile (E15.5).
 pub fn connection_zone(name: &str) -> String {
@@ -293,6 +328,14 @@ mod tests {
         assert!(!w[1].secured, "empty SECURITY = open");
         assert_eq!(w[2].ssid, "Cafe:Wifi"); // escaped colon preserved
         assert_eq!(w[2].signal, 65);
+    }
+
+    #[test]
+    fn parse_saved_wifi_picks_wireless_connections() {
+        let out = "Wired connection 1:802-3-ethernet\nHomeNet:802-11-wireless\n\
+                   MyVPN:vpn\nCafe:802-11-wireless\n";
+        assert_eq!(parse_saved_wifi(out), vec!["HomeNet", "Cafe"]);
+        assert!(parse_saved_wifi("").is_empty());
     }
 
     #[test]
