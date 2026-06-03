@@ -541,6 +541,9 @@ struct Settings {
     wifis: Option<Vec<crate::nm::Wifi>>,
     wifi_scanning: bool,
     wifi_autoconnect: bool,
+    /// Saved Wi-Fi connection names (E15.6a) — a scanned SSID that matches shows a
+    /// Forget button instead of Connect.
+    wifi_saved: Vec<String>,
     /// VPN/WireGuard connections (E15.7), read at settings start.
     vpns: Vec<crate::nm::Conn>,
     /// Mobile hotspot (E15.8): the AP SSID + key, mirroring `state`.
@@ -624,6 +627,7 @@ enum Message {
     // Wi-Fi page (E15.6).
     WifiScanned(Vec<crate::nm::Wifi>),
     ConnectSsid(String),
+    ForgetSsid(String),
     SetWifiAutoconnect(bool),
     // VPN page (E15.7).
     VpnToggle(String, bool),
@@ -799,6 +803,7 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 wifis: None,
                 wifi_scanning: false,
                 wifi_autoconnect: true,
+                wifi_saved: Vec::new(),
                 vpns: crate::nm::vpn_list(),
                 hotspot_name: st.hotspot_name.clone(),
                 hotspot_password: st.hotspot_password.clone(),
@@ -1061,6 +1066,13 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
                 .args(["net-flyout", "--select", &ssid])
                 .spawn();
         }
+        Message::ForgetSsid(ssid) => {
+            crate::nm::forget_wifi(&ssid);
+            state.wifi_saved = crate::nm::saved_wifi();
+            state.wifis = None; // re-scan so the row flips Forget→Connect
+            state.wifi_scanning = true;
+            return wifi_scan_task();
+        }
         Message::SetWifiAutoconnect(on) => {
             crate::nm::set_wifi_autoconnect(on);
             state.wifi_autoconnect = on;
@@ -1259,6 +1271,7 @@ fn maybe_load(state: &mut Settings) -> Task<Message> {
         Some(Kind::Wifi) if state.wifis.is_none() && !state.wifi_scanning => {
             state.wifi_scanning = true;
             state.wifi_autoconnect = crate::nm::wifi_autoconnect();
+            state.wifi_saved = crate::nm::saved_wifi();
             wifi_scan_task()
         }
         Some(Kind::Airplane) => {
@@ -2507,6 +2520,15 @@ fn wifi_page(state: &Settings) -> Element<'_, Message> {
             Some(list) if !list.is_empty() => {
                 let mut col = Column::new().spacing(0.0);
                 for w in list {
+                    // A saved network shows Forget (delete); an unsaved one, Connect.
+                    let saved = state.wifi_saved.iter().any(|n| n == &w.ssid);
+                    let action = if saved {
+                        button(text("Forget").size(metrics::UI_PX))
+                            .on_press(Message::ForgetSsid(w.ssid.clone()))
+                    } else {
+                        button(text("Connect").size(metrics::UI_PX))
+                            .on_press(Message::ConnectSsid(w.ssid.clone()))
+                    };
                     col = col.push(
                         Row::new()
                             .spacing(8.0)
@@ -2528,12 +2550,7 @@ fn wifi_page(state: &Settings) -> Element<'_, Message> {
                                     .size(metrics::UI_PX)
                                     .color(palette::color(palette::GRAY_TEXT)),
                             )
-                            .push(
-                                button(text("Connect").size(metrics::UI_PX))
-                                    .on_press(Message::ConnectSsid(w.ssid.clone()))
-                                    .padding(Padding::from([2.0, 10.0]))
-                                    .style(tile_style),
-                            )
+                            .push(action.padding(Padding::from([2.0, 10.0])).style(tile_style))
                             .padding(Padding::from([3.0, 6.0])),
                     );
                 }

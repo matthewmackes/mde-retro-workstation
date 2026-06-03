@@ -167,6 +167,16 @@ pub fn wifi_autoconnect() -> bool {
         .unwrap_or(true)
 }
 
+/// Forget (delete) a saved connection by name (`nmcli connection delete`), for the
+/// Wi-Fi page's Forget action (E15.6a). Best-effort.
+pub fn forget_wifi(name: &str) -> bool {
+    Command::new("nmcli")
+        .args(["connection", "delete", name])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Set `connection.autoconnect` on every saved Wi-Fi network (E15.6). Best-effort.
 pub fn set_wifi_autoconnect(on: bool) {
     let v = if on { "yes" } else { "no" };
