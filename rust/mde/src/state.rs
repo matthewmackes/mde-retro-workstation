@@ -238,6 +238,24 @@ pub struct MenuState {
     /// rc.xml. Default on (matches Win10).
     #[serde(default = "def_true")]
     pub mouse_scroll_inactive: bool,
+    /// Devices ▸ Touchpad (E12.7): on/off → `<sendEventsMode>`. Default on. Only
+    /// surfaced (and written to rc.xml's `touchpad` device) when a touchpad exists.
+    #[serde(default = "def_true")]
+    pub touchpad_enabled: bool,
+    /// Touchpad cursor speed level (1–10, default 5 = neutral) → `<pointerSpeed>`.
+    #[serde(default = "def_touchpad_speed")]
+    pub touchpad_speed: u8,
+    /// Touchpad tap-to-click → `<tap>`. Default on.
+    #[serde(default = "def_true")]
+    pub touchpad_tap: bool,
+    /// Touchpad two-finger scrolling → `<scrollMethod>twofinger|none</scrollMethod>`.
+    /// Default on.
+    #[serde(default = "def_true")]
+    pub touchpad_two_finger: bool,
+    /// Touchpad reverse (natural) scroll direction → `<naturalScroll>`. Default on
+    /// (matches the Win10 touchpad default).
+    #[serde(default = "def_true")]
+    pub touchpad_natural_scroll: bool,
     /// Win10 taskbar search affordance: "button" (default), "box", or "hidden"
     /// (E2.9). All open `mde search`; "box" is a wider labelled pill.
     #[serde(default = "def_search_mode")]
@@ -285,6 +303,10 @@ pub struct MenuState {
 
 fn def_scroll_lines() -> u8 {
     3
+}
+
+fn def_touchpad_speed() -> u8 {
+    5
 }
 
 fn def_true() -> bool {
@@ -341,6 +363,11 @@ impl Default for MenuState {
             mouse_natural_scroll: false,
             mouse_scroll_lines: def_scroll_lines(),
             mouse_scroll_inactive: true,
+            touchpad_enabled: true,
+            touchpad_speed: def_touchpad_speed(),
+            touchpad_tap: true,
+            touchpad_two_finger: true,
+            touchpad_natural_scroll: true,
             win10_search_mode: def_search_mode(),
             update_paused_until: 0,
             update_active_start: def_active_start(),
@@ -471,6 +498,11 @@ mod tests {
             mouse_natural_scroll: true,
             mouse_scroll_lines: 7,
             mouse_scroll_inactive: false,
+            touchpad_enabled: false,
+            touchpad_speed: 8,
+            touchpad_tap: false,
+            touchpad_two_finger: false,
+            touchpad_natural_scroll: false,
             win10_search_mode: "box".into(),
             update_paused_until: 1_900_000_000,
             update_active_start: 9,

@@ -243,6 +243,8 @@ enum Kind {
     Printers,
     /// The native Devices ▸ Mouse page (E12.6): labwc libinput in rc.xml.
     Mouse,
+    /// The native Devices ▸ Touchpad page (E12.7): conditional on a touchpad.
+    Touchpad,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -312,7 +314,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "Touchpad",
-                kind: Kind::Deferred,
+                kind: Kind::Touchpad,
             },
             Page {
                 title: "Typing",
@@ -638,6 +640,15 @@ struct Settings {
     mouse_natural_scroll: bool,
     mouse_scroll_lines: u8,
     scroll_inactive: bool,
+    /// Devices ▸ Touchpad (E12.7): probed once at init; the rail hides the Touchpad
+    /// page when false. The five settings mirror menu.json and (re)write rc.xml's
+    /// `touchpad` device whenever any libinput control changes.
+    touchpad_present: bool,
+    touchpad_enabled: bool,
+    touchpad_speed: u8,
+    touchpad_tap: bool,
+    touchpad_two_finger: bool,
+    touchpad_natural_scroll: bool,
     /// Accounts ▸ Family & other users (E10.4): the enumerated local accounts,
     /// (re)read on each visit to that page.
     accounts: Vec<crate::sysinfo::Account>,
@@ -778,6 +789,12 @@ enum Message {
     SetMouseNatural(bool),
     SetScrollLines(Lines),
     SetScrollInactive(bool),
+    // Devices ▸ Touchpad (E12.7).
+    SetTouchpadEnabled(bool),
+    SetTouchpadSpeed(u8),
+    SetTouchpadTap(bool),
+    SetTouchpadTwoFinger(bool),
+    SetTouchpadNatural(bool),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -886,6 +903,7 @@ fn list() -> ExitCode {
                 Kind::Bluetooth => "(native: Bluetooth)".to_string(),
                 Kind::Printers => "(native: Printers & scanners)".to_string(),
                 Kind::Mouse => "(native: Mouse)".to_string(),
+                Kind::Touchpad => "(native: Touchpad)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -977,6 +995,12 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 mouse_natural_scroll: st.mouse_natural_scroll,
                 mouse_scroll_lines: st.mouse_scroll_lines,
                 scroll_inactive: st.mouse_scroll_inactive,
+                touchpad_present: crate::mouse::has_touchpad(),
+                touchpad_enabled: st.touchpad_enabled,
+                touchpad_speed: st.touchpad_speed,
+                touchpad_tap: st.touchpad_tap,
+                touchpad_two_finger: st.touchpad_two_finger,
+                touchpad_natural_scroll: st.touchpad_natural_scroll,
                 accounts: Vec::new(),
                 new_user: String::new(),
                 confirm_remove: None,
@@ -1418,19 +1442,40 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
         // "scroll inactive windows" is advisory (persisted, never in rc.xml).
         Message::SetPrimaryButton(b) => {
             state.mouse_left_handed = b == PrimaryButton::Right;
-            apply_mouse(state);
+            apply_libinput(state);
         }
         Message::SetMouseNatural(on) => {
             state.mouse_natural_scroll = on;
-            apply_mouse(state);
+            apply_libinput(state);
         }
         Message::SetScrollLines(Lines(n)) => {
             state.mouse_scroll_lines = n;
-            apply_mouse(state);
+            apply_libinput(state);
         }
         Message::SetScrollInactive(on) => {
             state.scroll_inactive = on;
             persist(state);
+        }
+        // Devices ▸ Touchpad (E12.7) — each rewrites rc.xml's touchpad device.
+        Message::SetTouchpadEnabled(on) => {
+            state.touchpad_enabled = on;
+            apply_libinput(state);
+        }
+        Message::SetTouchpadSpeed(n) => {
+            state.touchpad_speed = n;
+            apply_libinput(state);
+        }
+        Message::SetTouchpadTap(on) => {
+            state.touchpad_tap = on;
+            apply_libinput(state);
+        }
+        Message::SetTouchpadTwoFinger(on) => {
+            state.touchpad_two_finger = on;
+            apply_libinput(state);
+        }
+        Message::SetTouchpadNatural(on) => {
+            state.touchpad_natural_scroll = on;
+            apply_libinput(state);
         }
         // Keep PIN entry to digits (a Windows-style numeric PIN), capped at 8.
         Message::Pin1(p) => {
@@ -1952,6 +1997,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Bluetooth
         | Kind::Printers
         | Kind::Mouse
+        | Kind::Touchpad
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -2010,6 +2056,11 @@ fn persist(state: &Settings) {
     st.mouse_natural_scroll = state.mouse_natural_scroll;
     st.mouse_scroll_lines = state.mouse_scroll_lines;
     st.mouse_scroll_inactive = state.scroll_inactive;
+    st.touchpad_enabled = state.touchpad_enabled;
+    st.touchpad_speed = state.touchpad_speed;
+    st.touchpad_tap = state.touchpad_tap;
+    st.touchpad_two_finger = state.touchpad_two_finger;
+    st.touchpad_natural_scroll = state.touchpad_natural_scroll;
     st.update_paused_until = state.update_paused_until;
     st.update_active_start = state.active_start;
     st.update_active_end = state.active_end;
@@ -2023,15 +2074,24 @@ fn persist(state: &Settings) {
     let _ = crate::state::save(&st);
 }
 
-/// Persist the mouse prefs, then push the rc.xml-backed three into labwc's
-/// `<libinput>` block and reconfigure (E12.6). The advisory `scroll_inactive` rides
-/// along in `persist` but `mouse::apply` never writes it to rc.xml.
-fn apply_mouse(state: &Settings) {
+/// Persist the pointer prefs, then push the rc.xml-backed controls into labwc's
+/// `<libinput>` block and reconfigure (E12.6/E12.7). Writes the `touchpad` device
+/// too when one is present, so a change on either page produces a complete block.
+/// The advisory `scroll_inactive` rides along in `persist` but is never in rc.xml.
+fn apply_libinput(state: &Settings) {
     persist(state);
+    let tp = state.touchpad_present.then(|| crate::mouse::Touchpad {
+        enabled: state.touchpad_enabled,
+        pointer_speed: crate::mouse::pointer_speed(state.touchpad_speed),
+        tap: state.touchpad_tap,
+        two_finger: state.touchpad_two_finger,
+        natural_scroll: state.touchpad_natural_scroll,
+    });
     let _ = crate::mouse::apply(
         state.mouse_left_handed,
         state.mouse_natural_scroll,
         state.mouse_scroll_lines,
+        tp.as_ref(),
     );
 }
 
@@ -2200,9 +2260,14 @@ fn category(state: &Settings, c: usize) -> Element<'_, Message> {
                 .color(palette::color(palette::WINDOW_TEXT)),
         );
 
-    // Left rail: one entry per page (deferred greyed).
+    // Left rail: one entry per page (deferred greyed). The Touchpad page is
+    // conditional — hidden from the rail when no touchpad is attached (E12.7);
+    // its page index stays stable for the others since we only skip the push.
     let mut rail = Column::new().spacing(1.0).width(Length::Fixed(220.0));
     for (i, p) in cat.pages.iter().enumerate() {
+        if matches!(p.kind, Kind::Touchpad) && !state.touchpad_present {
+            continue;
+        }
         rail = rail.push(rail_entry(i, p, i == state.page));
     }
 
@@ -2282,6 +2347,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Bluetooth => bluetooth_page(state),
         Kind::Printers => printers_page(state),
         Kind::Mouse => mouse_page(state),
+        Kind::Touchpad => touchpad_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -3435,6 +3501,64 @@ fn mouse_page(state: &Settings) -> Element<'_, Message> {
         .push(scroll_row)
         .push(natural)
         .push(inactive)
+        .into()
+}
+
+/// Devices ▸ Touchpad (E12.7): On/Off, cursor speed, tap, two-finger scroll, and
+/// reverse-scroll — each rewriting labwc's `touchpad` libinput device live. Only
+/// reached when a touchpad is present (the rail hides the page otherwise).
+fn touchpad_page(state: &Settings) -> Element<'_, Message> {
+    let cb = |lbl: &'static str, checked: bool, msg: fn(bool) -> Message| {
+        checkbox(lbl, checked)
+            .on_toggle(msg)
+            .size(metrics::UI_PX)
+            .text_size(metrics::UI_PX)
+            .spacing(8.0)
+            .style(mde_ui::checkbox_style)
+    };
+
+    let speed_items: Vec<u8> = (1u8..=10).collect();
+    let speed_row = Row::new()
+        .spacing(8.0)
+        .align_y(iced::alignment::Vertical::Center)
+        .push(
+            text("Cursor speed")
+                .size(metrics::UI_PX)
+                .width(Length::Fixed(230.0))
+                .color(palette::color(palette::WINDOW_TEXT)),
+        )
+        .push(
+            pick_list(
+                speed_items,
+                Some(state.touchpad_speed),
+                Message::SetTouchpadSpeed,
+            )
+            .text_size(metrics::UI_PX),
+        );
+
+    Column::new()
+        .spacing(14.0)
+        .push(cb(
+            "Touchpad",
+            state.touchpad_enabled,
+            Message::SetTouchpadEnabled,
+        ))
+        .push(speed_row)
+        .push(cb(
+            "Tap with a single finger to single-click",
+            state.touchpad_tap,
+            Message::SetTouchpadTap,
+        ))
+        .push(cb(
+            "Drag two fingers to scroll",
+            state.touchpad_two_finger,
+            Message::SetTouchpadTwoFinger,
+        ))
+        .push(cb(
+            "Reverse scrolling direction",
+            state.touchpad_natural_scroll,
+            Message::SetTouchpadNatural,
+        ))
         .into()
 }
 

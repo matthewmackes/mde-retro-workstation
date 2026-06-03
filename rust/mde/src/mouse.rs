@@ -14,30 +14,89 @@
 
 use std::path::PathBuf;
 
+/// Touchpad (`category="touchpad"`) settings for the optional second `<device>`
+/// in the `<libinput>` block (E12.7). Only emitted when a touchpad is present.
+#[derive(Debug, Clone, Copy)]
+pub struct Touchpad {
+    pub enabled: bool,      // sendEventsMode yes|no (On/Off)
+    pub pointer_speed: f32, // -1.0..1.0
+    pub tap: bool,          // tap-to-click
+    pub two_finger: bool,   // scrollMethod twofinger|none
+    pub natural_scroll: bool,
+}
+
 /// Map the Win10-style "lines to scroll" (1–10, default 3) onto libinput's
 /// `scrollFactor` multiplier (3 lines ⇒ 1.0, the neutral default).
 fn scroll_factor(lines: u8) -> f32 {
     (lines.clamp(1, 10) as f32) / 3.0
 }
 
-/// The `<libinput>` block for the given mouse settings, indented to sit at the top
-/// level of `rc.xml` (no trailing newline). The "scroll inactive windows"
-/// preference is deliberately absent — labwc/wlroots has no such knob, so it lives
-/// in menu.json as an advisory only (E12.6).
-pub fn libinput_block(left_handed: bool, natural_scroll: bool, scroll_lines: u8) -> String {
+/// Map a touchpad sensitivity level (1–10, default 5) onto libinput's
+/// `pointerSpeed` (-1.0..1.0); level 5 ⇒ 0.0 (the neutral default), E12.7.
+pub fn pointer_speed(level: u8) -> f32 {
+    ((level.clamp(1, 10) as f32) - 5.0) / 5.0
+}
+
+/// The `<libinput>` block: a `default` device from the mouse settings, plus a
+/// `touchpad` device when one is present. Indented for the top level of `rc.xml`,
+/// no trailing newline. The "scroll inactive windows" mouse preference is
+/// deliberately absent — labwc has no such knob, so it stays a menu.json advisory
+/// (E12.6). The labwc element vocabulary is per `man 5 labwc-config` (0.9.6).
+pub fn libinput_block(
+    left_handed: bool,
+    natural_scroll: bool,
+    scroll_lines: u8,
+    touchpad: Option<&Touchpad>,
+) -> String {
     let yn = |b: bool| if b { "yes" } else { "no" };
-    format!(
+    let mut s = format!(
         "  <libinput>
     <device category=\"default\">
       <naturalScroll>{nat}</naturalScroll>
       <leftHanded>{lh}</leftHanded>
       <scrollFactor>{sf:.2}</scrollFactor>
-    </device>
-  </libinput>",
+    </device>",
         nat = yn(natural_scroll),
         lh = yn(left_handed),
         sf = scroll_factor(scroll_lines),
-    )
+    );
+    if let Some(t) = touchpad {
+        s.push_str(&format!(
+            "
+    <device category=\"touchpad\">
+      <sendEventsMode>{ev}</sendEventsMode>
+      <pointerSpeed>{ps:.2}</pointerSpeed>
+      <naturalScroll>{nat}</naturalScroll>
+      <tap>{tap}</tap>
+      <scrollMethod>{sm}</scrollMethod>
+    </device>",
+            ev = yn(t.enabled),
+            ps = t.pointer_speed.clamp(-1.0, 1.0),
+            nat = yn(t.natural_scroll),
+            tap = yn(t.tap),
+            sm = if t.two_finger { "twofinger" } else { "none" },
+        ));
+    }
+    s.push_str("\n  </libinput>");
+    s
+}
+
+/// Whether a touchpad is attached. `MDE_TOUCHPAD` (1/0) forces the answer (a test
+/// seam); otherwise scan `/proc/bus/input/devices` for a touch/track-pad (E12.7).
+pub fn has_touchpad() -> bool {
+    match std::env::var("MDE_TOUCHPAD").ok().as_deref() {
+        Some("1") => return true,
+        Some("0") => return false,
+        _ => {}
+    }
+    std::fs::read_to_string("/proc/bus/input/devices")
+        .map(|s| {
+            s.lines().any(|l| {
+                let l = l.to_lowercase();
+                l.starts_with("n: name=") && (l.contains("touchpad") || l.contains("trackpad"))
+            })
+        })
+        .unwrap_or(false)
 }
 
 /// Swap `<libinput>…</libinput>` in `xml` for `block`, preserving everything else
@@ -75,12 +134,17 @@ fn rc_path() -> Option<PathBuf> {
 /// Write the mouse settings into rc.xml (atomic temp+rename), then reload labwc.
 /// The reconfigure is skipped under `MDE_LABWC_RC` (no live labwc to signal in a
 /// test). Returns the rc.xml path written, or `None` if there was nowhere to write.
-pub fn apply(left_handed: bool, natural_scroll: bool, scroll_lines: u8) -> std::io::Result<()> {
+pub fn apply(
+    left_handed: bool,
+    natural_scroll: bool,
+    scroll_lines: u8,
+    touchpad: Option<&Touchpad>,
+) -> std::io::Result<()> {
     let Some(path) = rc_path() else {
         return Ok(());
     };
     let xml = std::fs::read_to_string(&path)?;
-    let block = libinput_block(left_handed, natural_scroll, scroll_lines);
+    let block = libinput_block(left_handed, natural_scroll, scroll_lines, touchpad);
     let out = rewrite_libinput(&xml, &block);
     let tmp = path.with_extension("xml.mde-tmp");
     std::fs::write(&tmp, out.as_bytes())?;
@@ -98,10 +162,18 @@ pub fn apply(left_handed: bool, natural_scroll: bool, scroll_lines: u8) -> std::
 /// be checked end-to-end without a live session.
 pub fn debug_apply() {
     let st = crate::state::load();
+    let tp = has_touchpad().then(|| Touchpad {
+        enabled: st.touchpad_enabled,
+        pointer_speed: pointer_speed(st.touchpad_speed),
+        tap: st.touchpad_tap,
+        two_finger: st.touchpad_two_finger,
+        natural_scroll: st.touchpad_natural_scroll,
+    });
     if let Err(e) = apply(
         st.mouse_left_handed,
         st.mouse_natural_scroll,
         st.mouse_scroll_lines,
+        tp.as_ref(),
     ) {
         eprintln!("mde __mouse-rc: {e}");
         return;
@@ -148,18 +220,51 @@ mod tests {
     }
 
     #[test]
-    fn block_omits_the_advisory() {
-        let b = libinput_block(true, true, 6);
+    fn pointer_speed_maps() {
+        assert!((pointer_speed(5) - 0.0).abs() < 1e-6);
+        assert!((pointer_speed(10) - 1.0).abs() < 1e-6);
+        assert!((pointer_speed(1) - (-0.8)).abs() < 1e-6);
+        assert!((pointer_speed(0) - pointer_speed(1)).abs() < 1e-6); // clamped
+    }
+
+    #[test]
+    fn block_omits_the_advisory_and_touchpad_when_none() {
+        let b = libinput_block(true, true, 6, None);
         assert!(b.contains("<leftHanded>yes</leftHanded>"));
         assert!(b.contains("<naturalScroll>yes</naturalScroll>"));
         assert!(b.contains("<scrollFactor>2.00</scrollFactor>"));
+        // No touchpad present ⇒ only the default device.
+        assert!(!b.contains("category=\"touchpad\""));
         // The "scroll inactive windows" advisory must never reach rc.xml.
         assert!(!b.to_lowercase().contains("inactive"));
     }
 
     #[test]
+    fn block_emits_touchpad_device_when_present() {
+        let tp = Touchpad {
+            enabled: false,
+            pointer_speed: pointer_speed(10),
+            tap: false,
+            two_finger: false,
+            natural_scroll: true,
+        };
+        let b = libinput_block(false, false, 3, Some(&tp));
+        // Both device profiles, in order.
+        assert!(b.contains("category=\"default\""));
+        assert!(b.contains("category=\"touchpad\""));
+        assert!(b.find("category=\"default\"").unwrap() < b.find("category=\"touchpad\"").unwrap());
+        // On/Off off ⇒ sendEventsMode no; two-finger off ⇒ scrollMethod none.
+        assert!(b.contains("<sendEventsMode>no</sendEventsMode>"));
+        assert!(b.contains("<scrollMethod>none</scrollMethod>"));
+        assert!(b.contains("<pointerSpeed>1.00</pointerSpeed>"));
+        assert!(b.contains("<tap>no</tap>"));
+        // Exactly one libinput wrapper around the two devices.
+        assert_eq!(b.matches("<libinput>").count(), 1);
+    }
+
+    #[test]
     fn rewrite_swaps_block_and_keeps_mouse_default() {
-        let block = libinput_block(true, false, 3);
+        let block = libinput_block(true, false, 3, None);
         let out = rewrite_libinput(SAMPLE, &block);
         // New value in, old value gone.
         assert!(out.contains("<leftHanded>yes</leftHanded>"));
@@ -176,7 +281,7 @@ mod tests {
     #[test]
     fn rewrite_inserts_when_absent_keeping_mouse() {
         let no_li = "<labwc_config>\n  <mouse>\n    <default/>\n  </mouse>\n</labwc_config>\n";
-        let block = libinput_block(false, true, 5);
+        let block = libinput_block(false, true, 5, None);
         let out = rewrite_libinput(no_li, &block);
         assert_eq!(out.matches("<libinput>").count(), 1);
         assert!(out.contains("<naturalScroll>yes</naturalScroll>"));
@@ -186,10 +291,18 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_is_idempotent() {
-        let block = libinput_block(true, true, 7);
+    fn rewrite_is_idempotent_with_touchpad() {
+        let tp = Touchpad {
+            enabled: true,
+            pointer_speed: 0.2,
+            tap: true,
+            two_finger: true,
+            natural_scroll: false,
+        };
+        let block = libinput_block(true, true, 7, Some(&tp));
         let once = rewrite_libinput(SAMPLE, &block);
         let twice = rewrite_libinput(&once, &block);
         assert_eq!(once, twice);
+        assert_eq!(twice.matches("category=\"touchpad\"").count(), 1);
     }
 }
