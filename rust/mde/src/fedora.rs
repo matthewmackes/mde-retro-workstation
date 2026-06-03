@@ -183,3 +183,72 @@ pub fn install(packages: &[&str]) -> std::io::Result<std::process::ExitStatus> {
         .args(packages)
         .status()
 }
+
+// --- installed-package listing (Settings ▸ Storage ▸ Apps & features, E17.4) ---
+
+/// One installed package and its on-disk size (bytes).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Package {
+    pub name: String,
+    pub size: u64,
+}
+
+/// Parse `rpm -qa --qf '%{NAME} %{SIZE}\n'` into packages, **largest first**. Pure
+/// (unit-tested). Malformed/sizeless lines are skipped.
+pub fn parse_packages(out: &str) -> Vec<Package> {
+    let mut pkgs: Vec<Package> = out
+        .lines()
+        .filter_map(|l| {
+            let (name, size) = l.trim().rsplit_once(' ')?;
+            let size: u64 = size.trim().parse().ok()?;
+            (!name.is_empty()).then(|| Package {
+                name: name.trim().to_string(),
+                size,
+            })
+        })
+        .collect();
+    pkgs.sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
+    pkgs
+}
+
+/// The installed packages, largest first (`rpm -qa`).
+pub fn installed_packages() -> Vec<Package> {
+    let out = Command::new("rpm")
+        .args(["-qa", "--qf", "%{NAME} %{SIZE}\n"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    parse_packages(&out)
+}
+
+/// `dnf remove -y <pkg>` — the uninstall argv (run via `pkexec`). Pure.
+pub fn dnf_remove_cmd(pkg: &str) -> Vec<String> {
+    vec!["dnf".into(), "remove".into(), "-y".into(), pkg.into()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packages_parse_and_sort_largest_first() {
+        let out = "\
+firefox 250000000
+bash 8000000
+kernel-core 90000000
+junkline
+nosize abc
+";
+        let p = parse_packages(out);
+        assert_eq!(p.len(), 3); // junk + sizeless dropped
+        assert_eq!(p[0].name, "firefox"); // largest first
+        assert_eq!(p[0].size, 250_000_000);
+        assert_eq!(p[1].name, "kernel-core");
+        assert_eq!(p[2].name, "bash");
+    }
+
+    #[test]
+    fn remove_cmd_is_dnf_remove() {
+        assert_eq!(dnf_remove_cmd("htop"), vec!["dnf", "remove", "-y", "htop"]);
+    }
+}

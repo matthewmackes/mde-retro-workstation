@@ -591,6 +591,50 @@ pub fn print_storage_list() {
     }
 }
 
+/// The Storage Sense `--user` units (service, timer) as file contents (E17.4). The
+/// cleanup is inline in the service (purge the thumbnail cache + Trash), so the
+/// timer is self-contained — it does not depend on E17.5's richer `--clean-now`.
+/// Pure (unit-tested). `exe` is the absolute `mde` path (unused now, reserved).
+pub fn storage_sense_units() -> (String, String) {
+    let service = "[Unit]\n\
+        Description=MackesDE Storage Sense cleanup\n\n\
+        [Service]\n\
+        Type=oneshot\n\
+        ExecStart=/bin/sh -c 'rm -rf \"$HOME\"/.cache/thumbnails/* \"$HOME\"/.local/share/Trash/files/* \"$HOME\"/.local/share/Trash/info/* 2>/dev/null; true'\n"
+        .to_string();
+    let timer = "[Unit]\n\
+        Description=MackesDE Storage Sense schedule\n\n\
+        [Timer]\n\
+        OnCalendar=weekly\n\
+        Persistent=true\n\n\
+        [Install]\n\
+        WantedBy=timers.target\n"
+        .to_string();
+    (service, timer)
+}
+
+/// Write the Storage Sense units and enable/disable the `--user` timer (E17.4).
+/// Best-effort (a session without `systemctl --user` just persists the preference).
+pub fn apply_storage_sense(on: bool) {
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(home).join(".config/systemd/user");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let (service, timer) = storage_sense_units();
+    let _ = std::fs::write(dir.join("mde-storage-sense.service"), service);
+    let _ = std::fs::write(dir.join("mde-storage-sense.timer"), timer);
+    let _ = Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status();
+    let verb = if on { "enable" } else { "disable" };
+    let _ = Command::new("systemctl")
+        .args(["--user", verb, "--now", "mde-storage-sense.timer"])
+        .status();
+}
+
 // --- headless entry point --------------------------------------------------
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -657,6 +701,19 @@ tmpfs             16000000000            0  16000000000 /run/user/1000
         assert_eq!(human_bytes(512), "512 B");
         assert_eq!(human_bytes(1536), "1.5 KB");
         assert_eq!(human_bytes(5_368_709_120), "5.0 GB");
+    }
+
+    #[test]
+    fn storage_sense_units_are_self_contained() {
+        let (service, timer) = storage_sense_units();
+        // Service purges thumbnails + Trash inline (no dependency on --clean-now).
+        assert!(service.contains("ExecStart="));
+        assert!(service.contains(".cache/thumbnails"));
+        assert!(service.contains(".local/share/Trash"));
+        assert!(!service.contains("--clean-now"));
+        // Timer is a weekly, install-able systemd timer.
+        assert!(timer.contains("OnCalendar=weekly"));
+        assert!(timer.contains("WantedBy=timers.target"));
     }
 
     #[test]

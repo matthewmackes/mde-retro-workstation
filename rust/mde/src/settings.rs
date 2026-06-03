@@ -390,6 +390,8 @@ enum Kind {
     Typing,
     /// The native Devices ▸ AutoPlay page (E12.9): removable-media defaults.
     AutoPlay,
+    /// The native System ▸ Storage page (E17.4): usage bars + Storage Sense + apps.
+    Storage,
     /// Spawn one of mde's own subcommands (`mde <sub>`).
     Mde(&'static str),
     /// Launch a `fedora::TOOLS` entry by its command (install-if-missing).
@@ -436,7 +438,7 @@ const CATEGORIES: &[Category] = &[
             },
             Page {
                 title: "Storage",
-                kind: Kind::Deferred,
+                kind: Kind::Storage,
             },
         ],
     },
@@ -807,6 +809,14 @@ struct Settings {
     autoplay_enabled: bool,
     autoplay_removable: AutoAction,
     autoplay_memcard: AutoAction,
+    /// System ▸ Storage (E17.4): the breakdown (loaded off-thread on first visit),
+    /// the Storage Sense toggle (mirrors menu.json), and the Apps & features
+    /// drill-in (its package list + a pending uninstall confirm).
+    storage: Option<crate::sysinfo::StorageUsage>,
+    storage_sense: bool,
+    storage_apps: bool,
+    packages: Vec<crate::fedora::Package>,
+    confirm_uninstall: Option<String>,
     /// Accounts ▸ Family & other users (E10.4): the enumerated local accounts,
     /// (re)read on each visit to that page.
     accounts: Vec<crate::sysinfo::Account>,
@@ -963,14 +973,41 @@ enum Message {
     SetAutoplayEnabled(bool),
     SetAutoplayRemovable(AutoAction),
     SetAutoplayMemcard(AutoAction),
+    /// A do-nothing completion (for fire-and-forget off-thread side effects).
+    Noop,
+    // System ▸ Storage (E17.4).
+    StorageLoaded(Box<crate::sysinfo::StorageUsage>),
+    SetStorageSense(bool),
+    ShowApps,
+    BackFromApps,
+    PackagesLoaded(Vec<crate::fedora::Package>),
+    AskUninstall(String),
+    CancelUninstall,
+    ConfirmUninstall(String),
 }
 
 pub fn run(args: &[String]) -> ExitCode {
-    // `mde settings storage --list` — headless storage breakdown for the live root
-    // device (E17.3). Checked before the generic `--list` (category map) below.
-    if args.iter().any(|a| a == "storage") && args.iter().any(|a| a == "--list") {
-        crate::sysinfo::print_storage_list();
-        return ExitCode::SUCCESS;
+    // `mde settings storage …` — headless debug paths (E17.3/E17.4), checked
+    // before the generic `--list` (category map) below.
+    if args.iter().any(|a| a == "storage") {
+        if args.iter().any(|a| a == "--list") {
+            crate::sysinfo::print_storage_list();
+            return ExitCode::SUCCESS;
+        }
+        if args.iter().any(|a| a == "--apps") {
+            for p in crate::fedora::installed_packages() {
+                println!("{:>12}  {}", crate::sysinfo::human_bytes(p.size), p.name);
+            }
+            return ExitCode::SUCCESS;
+        }
+        // `--remove <pkg>` prints the exact privileged uninstall command (dry-run).
+        if let Some(i) = args.iter().position(|a| a == "--remove") {
+            if let Some(pkg) = args.get(i + 1) {
+                let cmd = crate::fedora::dnf_remove_cmd(pkg);
+                println!("pkexec {}", cmd.join(" "));
+                return ExitCode::SUCCESS;
+            }
+        }
     }
     if args.iter().any(|a| a == "--list") {
         return list();
@@ -1010,10 +1047,20 @@ pub fn run(args: &[String]) -> ExitCode {
         }
     }
     let cat_arg = cat_arg.trim().to_string();
-    let initial_cat = category_index(&cat_arg);
-    let initial_page = match (initial_cat, &page_arg) {
-        (Some(c), Some(name)) => page_index(c, name).unwrap_or(0),
-        _ => 0,
+    // `mde settings storage` is a shortcut straight to System ▸ Storage (E17.4) —
+    // "storage" is a page, not a category, so without this it would fall through to
+    // a Home search. (`backup`/`recovery` join it as they land.)
+    let (initial_cat, initial_page) = if cat_arg.eq_ignore_ascii_case("storage") {
+        let c = category_index("system");
+        let p = c.and_then(|c| page_index(c, "storage")).unwrap_or(0);
+        (c, p)
+    } else {
+        let cat = category_index(&cat_arg);
+        let page = match (cat, &page_arg) {
+            (Some(c), Some(name)) => page_index(c, name).unwrap_or(0),
+            _ => 0,
+        };
+        (cat, page)
     };
     let initial_search = if initial_cat.is_none() {
         cat_arg
@@ -1080,6 +1127,7 @@ fn list() -> ExitCode {
                 Kind::Touchpad => "(native: Touchpad)".to_string(),
                 Kind::Typing => "(native: Typing)".to_string(),
                 Kind::AutoPlay => "(native: AutoPlay)".to_string(),
+                Kind::Storage => "(native: Storage)".to_string(),
                 Kind::LockScreen => "(native: Lock screen)".to_string(),
                 Kind::Mde(s) => format!("mde {s}"),
                 Kind::Tool(c) => format!("tool: {c}"),
@@ -1185,6 +1233,12 @@ fn gui(initial: Option<usize>, initial_page: usize, initial_search: String) -> i
                 autoplay_enabled: st.autoplay_enabled,
                 autoplay_removable: AutoAction::from_key(&st.autoplay_removable),
                 autoplay_memcard: AutoAction::from_key(&st.autoplay_memcard),
+                storage: None,
+                storage_sense: st.storage_sense,
+                // Gallery/bench seam: start in the Apps & features drill-in.
+                storage_apps: std::env::var("MDE_STORAGE_VIEW").as_deref() == Ok("apps"),
+                packages: Vec::new(),
+                confirm_uninstall: None,
                 accounts: Vec::new(),
                 new_user: String::new(),
                 confirm_remove: None,
@@ -1699,6 +1753,51 @@ fn update(state: &mut Settings, message: Message) -> Task<Message> {
             state.autoplay_memcard = a;
             persist(state);
         }
+        Message::Noop => {}
+        // System ▸ Storage (E17.4).
+        Message::StorageLoaded(s) => state.storage = Some(*s),
+        Message::SetStorageSense(on) => {
+            state.storage_sense = on;
+            persist(state);
+            // Write + (en/dis)able the --user timer off-thread (systemctl can block).
+            return Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || crate::sysinfo::apply_storage_sense(on))
+                        .await
+                        .ok();
+                },
+                |_| Message::Noop,
+            );
+        }
+        Message::ShowApps => {
+            state.storage_apps = true;
+            if state.packages.is_empty() {
+                return packages_load_task();
+            }
+        }
+        Message::BackFromApps => {
+            state.storage_apps = false;
+            state.confirm_uninstall = None;
+        }
+        Message::PackagesLoaded(p) => state.packages = p,
+        Message::AskUninstall(name) => state.confirm_uninstall = Some(name),
+        Message::CancelUninstall => state.confirm_uninstall = None,
+        Message::ConfirmUninstall(name) => {
+            state.confirm_uninstall = None;
+            // pkexec dnf remove, then re-read the package list.
+            let args = crate::fedora::dnf_remove_cmd(&name);
+            return Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        let _ = std::process::Command::new("pkexec").args(&args).status();
+                        crate::fedora::installed_packages()
+                    })
+                    .await
+                    .unwrap_or_default()
+                },
+                Message::PackagesLoaded,
+            );
+        }
         // Keep PIN entry to digits (a Windows-style numeric PIN), capped at 8.
         Message::Pin1(p) => {
             state.pin1 = p.chars().filter(char::is_ascii_digit).take(8).collect();
@@ -1922,6 +2021,16 @@ fn maybe_load(state: &mut Settings) -> Task<Message> {
         }
         Some(Kind::Bluetooth) if state.bt.is_none() => bt_load_task(),
         Some(Kind::Printers) if state.printers.is_none() => printers_load_task(),
+        Some(Kind::Storage) => {
+            let mut tasks = Vec::new();
+            if state.storage.is_none() {
+                tasks.push(storage_load_task());
+            }
+            if state.storage_apps && state.packages.is_empty() {
+                tasks.push(packages_load_task());
+            }
+            Task::batch(tasks)
+        }
         _ => Task::none(),
     }
 }
@@ -1952,6 +2061,31 @@ fn bt_action_task<F: FnOnce() + Send + 'static>(action: F) -> Task<Message> {
             .unwrap_or_default()
         },
         |s| Message::BtLoaded(Box::new(s)),
+    )
+}
+
+/// Read the storage breakdown off the UI thread (E17.4) — `df`/`du`/`rpm` are slow,
+/// so they run on tokio's blocking pool and deliver `Message::StorageLoaded`.
+fn storage_load_task() -> Task<Message> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(crate::sysinfo::storage_usage)
+                .await
+                .unwrap_or_default()
+        },
+        |s| Message::StorageLoaded(Box::new(s)),
+    )
+}
+
+/// Read the installed-package list off the UI thread for the Apps drill-in (E17.4).
+fn packages_load_task() -> Task<Message> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(crate::fedora::installed_packages)
+                .await
+                .unwrap_or_default()
+        },
+        Message::PackagesLoaded,
     )
 }
 
@@ -2222,6 +2356,7 @@ fn open_current(state: &mut Settings) {
         | Kind::Touchpad
         | Kind::Typing
         | Kind::AutoPlay
+        | Kind::Storage
         | Kind::LockScreen => {}
         Kind::Mde(sub) => {
             let mde = mde_path();
@@ -2293,6 +2428,7 @@ fn persist(state: &Settings) {
     st.autoplay_enabled = state.autoplay_enabled;
     st.autoplay_removable = state.autoplay_removable.key().to_string();
     st.autoplay_memcard = state.autoplay_memcard.key().to_string();
+    st.storage_sense = state.storage_sense;
     st.update_paused_until = state.update_paused_until;
     st.update_active_start = state.active_start;
     st.update_active_end = state.active_end;
@@ -2590,6 +2726,7 @@ fn content_pane<'a>(state: &'a Settings, cat: &'static Category) -> Element<'a, 
         Kind::Touchpad => touchpad_page(state),
         Kind::Typing => typing_page(state),
         Kind::AutoPlay => autoplay_page(state),
+        Kind::Storage => storage_page(state),
         Kind::LockScreen => lock_page(state),
         Kind::Deferred => text("This page is part of a later milestone.")
             .size(metrics::UI_PX)
@@ -3940,6 +4077,223 @@ fn autoplay_page(state: &Settings) -> Element<'_, Message> {
             Message::SetAutoplayMemcard,
         ))
         .into()
+}
+
+/// A proportional usage bar (accent fill on a muted track), E17.4.
+fn usage_bar(frac: f32) -> Element<'static, Message> {
+    const BAR_W: f32 = 360.0;
+    const BAR_H: f32 = 8.0;
+    let fill = (BAR_W * frac.clamp(0.0, 1.0)).max(0.0);
+    let cell = |w: Length, color: iced::Color| {
+        container(text(""))
+            .width(w)
+            .height(Length::Fixed(BAR_H))
+            .style(move |_: &iced::Theme| container::Style {
+                background: Some(color.into()),
+                ..Default::default()
+            })
+    };
+    Row::new()
+        .width(Length::Fixed(BAR_W))
+        .push(cell(Length::Fixed(fill), palette::accent()))
+        .push(cell(Length::Fill, palette::color(palette::WINDOW_FRAME)))
+        .into()
+}
+
+/// System ▸ Storage (E17.4): "This PC" usage summary + per-category bars, the
+/// Storage Sense toggle, the other drives, and the Apps & features drill-in.
+fn storage_page(state: &Settings) -> Element<'_, Message> {
+    let Some(u) = &state.storage else {
+        return text("Reading storage…")
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::GRAY_TEXT))
+            .into();
+    };
+    if state.storage_apps {
+        return apps_drill_in(state);
+    }
+
+    let root = u.mounts.iter().find(|m| m.target == "/");
+    // Bars show each category's share of the *used* space (so they compose what's
+    // in use — Win10 shows the breakdown of used storage, not of empty capacity).
+    let root_used = root.map(|m| m.used).unwrap_or(1).max(1);
+
+    let mut col = Column::new().spacing(12.0);
+    if let Some(r) = root {
+        col = col.push(
+            text(format!(
+                "This PC — {} of {} used",
+                crate::sysinfo::human_bytes(r.used),
+                crate::sysinfo::human_bytes(r.total)
+            ))
+            .size(metrics::UI_PX)
+            .color(palette::color(palette::WINDOW_TEXT)),
+        );
+    }
+
+    // Per-category bars.
+    let mut bars = Column::new().spacing(8.0);
+    for (cat, bytes) in &u.categories {
+        let frac = *bytes as f32 / root_used as f32;
+        bars = bars.push(
+            Column::new()
+                .spacing(3.0)
+                .push(
+                    Row::new()
+                        .push(
+                            text(cat.label())
+                                .size(metrics::UI_PX)
+                                .width(Length::Fill)
+                                .color(palette::color(palette::WINDOW_TEXT)),
+                        )
+                        .push(
+                            text(crate::sysinfo::human_bytes(*bytes))
+                                .size(metrics::BADGE_PX)
+                                .color(palette::color(palette::GRAY_TEXT)),
+                        ),
+                )
+                .push(usage_bar(frac)),
+        );
+    }
+    col = col.push(bars);
+
+    // Apps & features drill-in.
+    col = col.push(
+        button(text("Apps & features").size(metrics::UI_PX))
+            .on_press(Message::ShowApps)
+            .padding(Padding::from([4.0, 12.0]))
+            .style(mde_ui::button_ghost),
+    );
+
+    // Storage Sense.
+    col = col
+        .push(
+            checkbox("Storage Sense", state.storage_sense)
+                .on_toggle(Message::SetStorageSense)
+                .size(metrics::UI_PX)
+                .text_size(metrics::UI_PX)
+                .spacing(8.0)
+                .style(mde_ui::checkbox_style),
+        )
+        .push(
+            text("Free up space automatically by deleting temporary files and emptying the Trash on a schedule.")
+                .size(metrics::BADGE_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+
+    // Other drives.
+    let others: Vec<&crate::sysinfo::Mount> = u.mounts.iter().filter(|m| m.target != "/").collect();
+    if !others.is_empty() {
+        col = col.push(
+            text("Storage usage on other drives")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+        for m in others {
+            col = col.push(
+                text(format!(
+                    "{} — {} of {} used",
+                    m.target,
+                    crate::sysinfo::human_bytes(m.used),
+                    crate::sysinfo::human_bytes(m.total)
+                ))
+                .size(metrics::BADGE_PX)
+                .color(palette::color(palette::WINDOW_TEXT)),
+            );
+        }
+    }
+
+    scrollable(col).style(mde_ui::scrollbar).into()
+}
+
+/// The Apps & features drill-in (E17.4): the largest installed packages, each with
+/// a (greyed, no-backend) Move and an Uninstall behind a confirm → `pkexec dnf remove`.
+fn apps_drill_in(state: &Settings) -> Element<'_, Message> {
+    let back = button(text("\u{2190} Apps & features").size(metrics::UI_PX))
+        .on_press(Message::BackFromApps)
+        .padding(Padding::from([3.0, 10.0]))
+        .style(mde_ui::button_ghost);
+
+    let mut list = Column::new().spacing(2.0);
+    if state.packages.is_empty() {
+        list = list.push(
+            text("Reading installed apps…")
+                .size(metrics::UI_PX)
+                .color(palette::color(palette::GRAY_TEXT)),
+        );
+    }
+    // Top-by-size (the full set is thousands of packages); 60 is plenty to scroll.
+    for p in state.packages.iter().take(60) {
+        let row = Row::new()
+            .spacing(10.0)
+            .align_y(iced::alignment::Vertical::Center)
+            .push(
+                Column::new()
+                    .width(Length::Fill)
+                    .push(
+                        text(p.name.clone())
+                            .size(metrics::UI_PX)
+                            .color(palette::color(palette::WINDOW_TEXT)),
+                    )
+                    .push(
+                        text(crate::sysinfo::human_bytes(p.size))
+                            .size(metrics::BADGE_PX)
+                            .color(palette::color(palette::GRAY_TEXT)),
+                    ),
+            )
+            // Move has no backend on Linux — shown disabled (no on_press), greyed.
+            .push(
+                button(
+                    text("Move")
+                        .size(metrics::UI_PX)
+                        .color(palette::color(palette::GRAY_TEXT)),
+                )
+                .padding(Padding::from([3.0, 10.0]))
+                .style(mde_ui::button_ghost),
+            )
+            .push(
+                button(text("Uninstall").size(metrics::UI_PX))
+                    .on_press(Message::AskUninstall(p.name.clone()))
+                    .padding(Padding::from([3.0, 10.0]))
+                    .style(mde_ui::button_ghost),
+            );
+        list = list.push(container(row).padding(Padding::from([4.0, 4.0])));
+    }
+
+    let mut col = Column::new()
+        .spacing(10.0)
+        .push(back)
+        .push(container(scrollable(list).style(mde_ui::scrollbar)).height(Length::Fill));
+
+    // Inline uninstall confirm (the accounts-page pattern).
+    if let Some(name) = &state.confirm_uninstall {
+        col = col.push(
+            Column::new()
+                .spacing(6.0)
+                .push(
+                    text(format!("Uninstall {name}?"))
+                        .size(metrics::UI_PX)
+                        .color(palette::color(palette::WINDOW_TEXT)),
+                )
+                .push(
+                    Row::new()
+                        .spacing(8.0)
+                        .push(
+                            button(text("Uninstall").size(metrics::UI_PX))
+                                .on_press(Message::ConfirmUninstall(name.clone()))
+                                .padding(Padding::from([3.0, 12.0]))
+                                .style(mde_ui::button_primary),
+                        )
+                        .push(
+                            button(text("Cancel").size(metrics::UI_PX))
+                                .on_press(Message::CancelUninstall)
+                                .padding(Padding::from([3.0, 12.0]))
+                                .style(mde_ui::button_ghost),
+                        ),
+                ),
+        );
+    }
+    col.into()
 }
 
 /// Network & Internet ▸ Cellular (E15.12): a greyed, disabled "Cellular" toggle +
